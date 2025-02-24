@@ -3,7 +3,7 @@
 set -e -u
 
 function display_info {
-    echo "Workflow Run ID=GITHUB_RUN_ID"
+    echo "Workflow Run ID=$GITHUB_RUN_ID"
     echo "is_release=${INPUT_IS_RELEASE-}"
     echo "SHA=${INPUT_SHA-}"
     echo "version=${INPUT_VERSION-}"
