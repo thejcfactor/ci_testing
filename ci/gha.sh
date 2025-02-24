@@ -2,8 +2,6 @@
 
 set -e -u
 
-INPUT_IS_RELEASE="true"
-
 function display_info {
     echo "Workflow Run ID=$GITHUB_RUN_ID"
     echo "Workflow Event=$GITHUB_EVENT_NAME"
@@ -17,10 +15,39 @@ function display_info {
     echo "ARM64_PLATFORMS=$ARM64_PLATFORMS"
 }
 
+function validate_sha {
+    sha="${INPUT_SHA:-}"
+    if [ -z "$sha" ]; then
+        echo "Must provide SHA"
+        exit 1
+    fi
+    if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "Invalid SHA: $sha"
+        exit 1
+    fi
+}
+
+function validate_version {
+    version="${INPUT_VERSION:-}"
+    if [ -z "$version" ]; then
+        echo "Must provide version"
+        exit 1
+    fi
+    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc|dev|post)[0-9]+)?$ ]]; then
+        echo "Invalid version: $version"
+        exit 1
+    fi
+}
+
 function validate_input {
     workflow_type="${1:-}"
     if [ "$workflow_type" == "build_wheels" ]; then
         echo "workflow_type: build_wheels, params: $@"
+        is_release="${INPUT_IS_RELEASE:-}"
+        if ! [[ -z "$is_release" && "$is_release" == "true" ]]; then
+            validate_sha
+            validate_version
+        fi
     elif [ "$workflow_type" == "tests" ]; then
         echo "workflow_type: tests, params: $@"
     else
