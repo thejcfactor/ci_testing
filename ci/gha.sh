@@ -43,14 +43,14 @@ function validate_version {
 function validate_input {
     workflow_type="${1:-}"
     project_type="${PROJECT_TYPE:-}"
-    if [[ "$project_type" == "OPERATIONAL" || "$project_type" == "COLUMNAR" ]]; then
+    if ! [[ "$project_type" == "OPERATIONAL" || "$project_type" == "COLUMNAR" ]]; then
         echo "Invalid project type: $project_type"
         exit 1
     fi
     if [ "$workflow_type" == "build_wheels" ]; then
         echo "workflow_type: build_wheels, params: $@"
         is_release="${INPUT_IS_RELEASE:-}"
-        if ! [[ -z "$is_release" && "$is_release" == "true" ]]; then
+        if [[ ! -z "$is_release" && "$is_release" == "true" ]]; then
             validate_sha
             validate_version
         fi
