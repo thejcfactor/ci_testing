@@ -78,7 +78,7 @@ function set_project_prefix {
     project_type="${PROJECT_TYPE:-}"
     if [[ "$project_type" == "OPERATIONAL" || "$project_type" == "PYCBC" ]]; then
         PROJECT_PREFIX="PYCBC"
-    elif [[ "$project_type" == "COLUMNAR"  || "$project_type" == "PYCBCC" ]]; then
+    elif [[ "$project_type" == "COLUMNAR" || "$project_type" == "PYCBCC" ]]; then
         PROJECT_PREFIX="PYCBCC"
     else
         echo "Invalid project type: $project_type"
@@ -147,7 +147,7 @@ function build_sdist {
     echo "$env_vars"
     cd $PROJECT_ROOT
     echo "Building C++ core CPM Cache."
-    python setup.py configure_ext    
+    python setup.py configure_ext
     set_client_version
 
     rm -rf ./build
