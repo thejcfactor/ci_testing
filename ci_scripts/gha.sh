@@ -8,9 +8,11 @@ PROJECT_ROOT="$(
 )"
 
 CI_SCRIPTS_PATH="$PROJECT_ROOT/ci_scripts"
-echo "PROJECT_ROOT=$PROJECT_ROOT"
-
 PROJECT_PREFIX=""
+
+function log_message {
+    echo "[$(date +'%Y-%m-%dT%H:%M:%S%z')]: $1"
+}
 
 function display_info {
     echo "Workflow Run ID=$GITHUB_RUN_ID"
@@ -121,6 +123,7 @@ function setup_and_execute_linting {
 }
 
 function build_sdist {
+    echo "PROJECT_ROOT=$PROJECT_ROOT"
     set_project_prefix
 
     echo "Installing basic build dependencies."
@@ -154,6 +157,17 @@ function build_sdist {
     ls -alh
     sdist_name=$(find . -name '*.tar.gz' | cut -c 3- | rev | cut -c 8- | rev)
     export $(echo "SDIST_NAME=$sdist_name")
+}
+
+function get_sdist_name {
+    sdist_dir="$PROJECT_ROOT/dist"
+    if [ ! -d "$sdist_dir" ]; then
+        echo "sdist_dir does not exist."
+        exit 1
+    fi
+    cd dist
+    sdist_name=$(find . -name '*.tar.gz' | cut -c 3- | rev | cut -c 8- | rev)
+    echo "$sdist_name"
 }
 
 function handle_cxx_change {
@@ -192,6 +206,8 @@ elif [ "$cmd" == "lint" ]; then
     setup_and_execute_linting
 elif [ "$cmd" == "sdist" ]; then
     build_sdist
+elif [ "$cmd" == "get_sdist_name" ]; then
+    get_sdist_name
 else
     echo "Invalid command: $cmd"
 fi
