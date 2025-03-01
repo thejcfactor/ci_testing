@@ -17,20 +17,24 @@ function log_message {
 function display_info {
     echo "Workflow Run ID=$GITHUB_RUN_ID"
     echo "Workflow Event=$GITHUB_EVENT_NAME"
-    echo "is_release=${INPUT_IS_RELEASE:-}"
-    echo "SHA=${INPUT_SHA:-}"
-    echo "version=${INPUT_VERSION:-}"
-    echo "cxx_change=${INPUT_CXX_CHANGE:-}"
-    echo "build_config=${INPUT_BUILD_CONFIG:-}"
-    echo "PROJECT_TYPE=$PROJECT_TYPE"
-    echo "DEFAULT_PYTHON=$DEFAULT_PYTHON"
-    echo "PYTHON_VERSIONS=$PYTHON_VERSIONS"
-    echo "X86_64_PLATFORMS=$X86_64_PLATFORMS"
-    echo "ARM64_PLATFORMS=$ARM64_PLATFORMS"
+    echo "is_release=${CBCI_IS_RELEASE:-}"
+    echo "SHA=${CBCI_SHA:-}"
+    echo "version=${CBCI_VERSION:-}"
+    echo "cxx_change=${CBCI_CXX_CHANGE:-}"
+    echo "build_config=${CBCI_CONFIG:-}"
+    echo "PROJECT_TYPE=$CBCI_PROJECT_TYPE"
+    echo "DEFAULT_PYTHON=$CBCI_DEFAULT_PYTHON"
+    echo "SUPPORTED_PYTHON_VERSIONS=$CBCI_SUPPORTED_PYTHON_VERSIONS"
+    echo "SUPPORTED_X86_64_PLATFORMS=$CBCI_SUPPORTED_X86_64_PLATFORMS"
+    echo "DEFAULT_LINUX_PLATFORM=$CBCI_DEFAULT_LINUX_PLATFORM"
+    echo "DEFAULT_MACOS_X86_64_PLATFORM=$CBCI_DEFAULT_MACOS_X86_64_PLATFORM"
+    echo "DEFAULT_WINDOWS_PLATFORM=$CBCI_DEFAULT_WINDOWS_PLATFORM"
+    echo "DEFAULT_LINUX_CONTAINER=$CBCI_DEFAULT_LINUX_CONTAINER"
+    echo "DEFAULT_ALPINE_CONTAINER=$CBCI_DEFAULT_ALPINE_CONTAINER"
 }
 
 function validate_sha {
-    sha="${INPUT_SHA:-}"
+    sha="${CBCI_SHA:-}"
     if [ -z "$sha" ]; then
         echo "Must provide SHA"
         exit 1
@@ -42,7 +46,7 @@ function validate_sha {
 }
 
 function validate_version {
-    version="${INPUT_VERSION:-}"
+    version="${CBCI_VERSION:-}"
     if [ -z "$version" ]; then
         echo "Must provide version"
         exit 1
@@ -58,7 +62,7 @@ function validate_input {
     set_project_prefix
     if [ "$workflow_type" == "build_wheels" ]; then
         echo "workflow_type: build_wheels, params: $@"
-        is_release="${INPUT_IS_RELEASE:-}"
+        is_release="${CBCI_IS_RELEASE:-}"
         if [[ ! -z "$is_release" && "$is_release" == "true" ]]; then
             validate_sha
             validate_version
@@ -75,7 +79,7 @@ function set_project_prefix {
     if [ ! -z "$PROJECT_PREFIX" ]; then
         return
     fi
-    project_type="${PROJECT_TYPE:-}"
+    project_type="${CBCI_PROJECT_TYPE:-}"
     if [[ "$project_type" == "OPERATIONAL" || "$project_type" == "PYCBC" ]]; then
         PROJECT_PREFIX="PYCBC"
     elif [[ "$project_type" == "COLUMNAR" || "$project_type" == "PYCBCC" ]]; then
@@ -105,7 +109,7 @@ function set_client_version {
         echo "Invalid project prefix: $PROJECT_PREFIX"
         exit 1
     fi
-    version="${INPUT_VERSION:-}"
+    version="${CBCI_VERSION:-}"
     if ! [ -z "$version" ]; then
         git config user.name "Couchbase SDK Team"
         git config user.email "sdk_dev@couchbase.com"
@@ -129,11 +133,11 @@ function build_sdist {
     echo "Installing basic build dependencies."
     python -m pip install --upgrade pip setuptools wheel
 
-    build_config="${INPUT_BUILD_CONFIG:-}"
+    build_config="${CBCI_CONFIG:-}"
     echo "Parsing build config: $build_config"
 
     exit_code=0
-    config_str=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_sdist_config" "INPUT_BUILD_CONFIG") || exit_code=$?
+    config_str=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_sdist_config" "CBCI_CONFIG") || exit_code=$?
     if [ $exit_code -ne 0 ]; then
         echo "config_str=$config_str"
         echo "Failed to parse build config."
@@ -154,9 +158,8 @@ function build_sdist {
     echo "Building source distribution."
     python setup.py sdist
     cd dist
+    echo "ls -alh $PROJECT_ROOT/dist"
     ls -alh
-    sdist_name=$(find . -name '*.tar.gz' | cut -c 3- | rev | cut -c 8- | rev)
-    export $(echo "SDIST_NAME=$sdist_name")
 }
 
 function get_sdist_name {
@@ -170,8 +173,19 @@ function get_sdist_name {
     echo "$sdist_name"
 }
 
+function get_stage_matrices {
+    exit_code=0
+    stage_matrices=$(python "$CI_SCRIPTS_PATH/pygha.py" "get_stage_matrices" "CBCI_CONFIG") || exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "stage_matrices=$stage_matrices"
+        echo "Failed to generate stage matrices."
+        exit 1
+    fi
+    echo "$stage_matrices"
+}
+
 function handle_cxx_change {
-    cxx_change="${INPUT_CXX_CHANGE:-}"
+    cxx_change="${CBCI_CXX_CHANGE:-}"
     if [[ ! -z "$cxx_change" && "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
         if [[ "$cxx_change" == "PR_*" ]]; then
             pr=$(echo "$cxx_change" | cut -d'_' -f 2)
@@ -208,6 +222,8 @@ elif [ "$cmd" == "sdist" ]; then
     build_sdist
 elif [ "$cmd" == "get_sdist_name" ]; then
     get_sdist_name
+elif [ "$cmd" == "get_stage_matrices" ]; then
+    get_stage_matrices
 else
     echo "Invalid command: $cmd"
 fi
