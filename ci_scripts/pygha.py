@@ -106,7 +106,8 @@ def build_default_config(stage: ConfigStage, project: SdkProject) -> dict:
         prefer_ccache = get_env_variable('PREFER_CCACHE', quiet=True)
         if prefer_ccache:
             config['CB_CACHE_OPTION']['required'] = True
-            config['CB_CACHE_OPTION']['default'] = prefer_ccache
+            config['CB_CACHE_OPTION']['default'] = 'ccache'
+            config['CCACHE_DIR'] = {'required': True, 'default': prefer_ccache, 'sdk_alias': 'CCACHE_DIR'}
         prefer_verbose = get_env_variable('PREFER_VERBOSE_MAKEFILE', quiet=True)
         if prefer_verbose:
             config['VERBOSE_MAKEFILE']['required'] = True
