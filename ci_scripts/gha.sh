@@ -428,7 +428,7 @@ function reduce_linux_wheel_size {
 function reduce_macos_wheel_size {
     wheel_name="$1"
     wheel_path="$2"
-    wheel_debug_path="$2"
+    wheel_debug_path="$3"
     if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
         project_root="couchbase"
         lib_path=$project_root
@@ -443,8 +443,12 @@ function reduce_macos_wheel_size {
     python -m wheel unpack $wheel_name
     ls -alh
     mv $wheel_name $wheel_debug_path
+    echo "Moving to $wheel_root/$lib_path"
     cd "$wheel_root/$lib_path"
+    ls -alh
+    echo "Copying $lib_name.so to $lib_name.orig.so"
     cp $lib_name.so $lib_name.orig.so
+    echo "Stripping $lib_name.so"
     xcrun strip -Sx $lib_name.so
     ls -alh | grep $lib_name
     rm $lib_name.orig.so
