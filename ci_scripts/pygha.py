@@ -122,7 +122,10 @@ def user_config_as_json(config_key: str) -> Dict[str, Any]:
     config_str = get_env_variable(config_key, quiet=True)
     config = {}
     if config_str:
-        try:
+        # for GHA linux, we pass the JSON config as a string into the docker container
+        if config_str.startswith('"'):
+            config_str = config_str[1:-1]
+        try:    
             config = json.loads(config_str)
         except Exception as e:
             print(f'Invalid JSON: {e}')
