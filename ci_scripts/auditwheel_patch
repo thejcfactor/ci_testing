@@ -1,0 +1,33 @@
+import json
+import os
+import sys
+
+from auditwheel.main import main
+from auditwheel.policy import _POLICY_JSON_MAP as POLICY_JSON_MAP
+
+use_openssl = os.getenv('PYCBC_USE_OPENSSL', os.getenv('PYCBCC_USE_OPENSSL', ''))
+if use_openssl.lower() in ['true', '1', 'y', 'yes']:
+    # we want to dynamically link against OpenSSL libraries
+    openssl_version = os.getenv('PYCBC_OPENSSL_VERSION', os.getenv('PYCBCC_OPENSSL_VERSION'))
+    if '1.1' in openssl_version:
+        openssl_libs = ['libssl.so.1.1', 'libcrypto.so.1.1']
+    elif '3.1' in openssl_version:
+        openssl_libs = ['libssl.so.3.1', 'libcrypto.so.3.1']
+    elif '3' in openssl_version:
+        openssl_libs = ['libssl.so.3', 'libcrypto.so.3']
+    else:
+        openssl_libs = ['libssl.so.1.1', 'libcrypto.so.1.1']
+
+    for k in POLICY_JSON_MAP.keys():
+        policy_list = json.loads(POLICY_JSON_MAP[k].read_text())
+        save_updates = False
+        for policy in policy_list:
+            missing_libs = [lib for lib in openssl_libs if lib not in policy['lib_whitelist']]
+            if missing_libs:
+                save_updates = True
+                policy['lib_whitelist'].extend(missing_libs)
+        if policy_list and save_updates:
+            POLICY_JSON_MAP[k].write_text(json.dumps(policy_list))
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -24,7 +24,7 @@ class SdkProject(Enum):
     Operational = 'PYCBC'
 
     @classmethod
-    def from_env(cls, env_key: Optional[str] = 'PROJECT_TYPE') -> SdkProject:
+    def from_env(cls, env_key: Optional[str] = 'CBCI_PROJECT_TYPE') -> SdkProject:
         env = get_env_variable(env_key)
         if env.upper() in ['COLUMNAR', 'PYCBCC']:
             return SdkProject.Columnar
@@ -35,6 +35,7 @@ class SdkProject(Enum):
             sys.exit(1)
 
 
+# TODO: TypeDict? or maybe Dict[str, dataclass]; more config options
 DEFAULT_CONFIG = {
     'USE_OPENSSL': {
         'default': 'OFF',
@@ -42,12 +43,42 @@ DEFAULT_CONFIG = {
         'required': True,
         'sdk_alias': 'SDKPROJECT_USE_OPENSSL'
     },
+    'OPENSSL_VERSION': {
+        'default': None,
+        'description': 'The version of OpenSSL to use instead of boringssl',
+        'required': False,
+        'sdk_alias': 'SDKPROJECT_OPENSSL_VERSION'
+    },
     'SET_CPM_CACHE': {
         'default': 'ON',
         'description': 'Initialize the C++ core CPM cache',
         'required': False,
         'sdk_alias': 'SDKPROJECT_SET_CPM_CACHE'
-    }
+    },
+    'USE_LIMITED_API': {
+        'default': None,
+        'description': 'Set to enable use of Py_LIMITED_API',
+        'required': False,
+        'sdk_alias': 'SDKPROJECT_LIMITED_API'
+    },
+    'VERBOSE_MAKEFILE': {
+        'default': None,
+        'description': 'Use verbose logging when configuring/building',
+        'required': False,
+        'sdk_alias': 'SDKPROJECT_VERBOSE_MAKEFILE'
+    },
+    'BUILD_TYPE': {
+        'default': 'RelWithDebInfo',
+        'description': 'Sets the build type when configuring/building',
+        'required': False,
+        'sdk_alias': 'SDKPROJECT_BUILD_TYPE'
+    },
+    'CB_CACHE_OPTION': {
+        'default': None,
+        'description': 'Sets the builds ccache option',
+        'required': False,
+        'sdk_alias': 'SDKPROJECT_CB_CACHE_OPTION'
+    },
 }
 
 
@@ -58,14 +89,26 @@ def get_env_variable(key: str, quiet: Optional[bool] = False) -> str:
         if not quiet:
             print(f'Environment variable {key} not set.')
             sys.exit(1)
-
+    except Exception as e:
+        if not quiet:
+            print(f'Error getting environment variable {key}: {e}')
+            sys.exit(1)
+    return None
 
 def build_default_config(stage: ConfigStage, project: SdkProject) -> dict:
     config = deepcopy(DEFAULT_CONFIG)
     if stage == ConfigStage.BUILD_SDIST:
         config['SET_CPM_CACHE']['required'] = True
     elif stage == ConfigStage.BUILD_WHEEL:
-        pass
+        config['BUILD_TYPE']['required'] = True
+        prefer_ccache = get_env_variable('PREFER_CCACHE', quiet=True)
+        if prefer_ccache:
+            config['CB_CACHE_OPTION']['required'] = True
+            config['CB_CACHE_OPTION']['default'] = prefer_ccache
+        prefer_verbose = get_env_variable('PREFER_VERBOSE_MAKEFILE', quiet=True)
+        if prefer_verbose:
+            config['VERBOSE_MAKEFILE']['required'] = True
+            config['VERBOSE_MAKEFILE']['default'] = 'ON'
 
     for v in config.values():
         v['sdk_alias'] = v['sdk_alias'].replace('SDKPROJECT', project.value)
@@ -360,9 +403,9 @@ def get_stage_matrices(config_key: str) -> None:
     print(f'{json.dumps(matrices)}')
 
 
-def parse_sdist_config(config_key: str) -> None:
+def parse_config(config_stage: ConfigStage, config_key: str) -> None:
     sdk_project = SdkProject.from_env()
-    default_cfg = build_default_config(ConfigStage.BUILD_SDIST, sdk_project)
+    default_cfg = build_default_config(config_stage, sdk_project)
     user_config = user_config_as_json(config_key)
 
     cfg = {}
@@ -378,12 +421,23 @@ def parse_sdist_config(config_key: str) -> None:
     # handle defaults
     required_defaults = [k for k, v in default_cfg.items() if v['required'] is True]
     for k in required_defaults:
-        if k not in cfg:
+        if k not in cfg and default_cfg[k]['default'] is not None:
             cfg[k] = default_cfg[k]['default']
 
     # print(f'{json.dumps({default_cfg[k]["sdk_alias"]:v for k, v in cfg.items()})}')
     print(' '.join([f'{default_cfg[k]["sdk_alias"]}={v}' for k, v in cfg.items()]))
 
+
+def parse_wheel_name(wheelname: str, project_name: str) -> None:
+    tokens = wheelname.split('-')
+    if len(tokens) < 5:
+        print(f'Expected at least 5 tokens, found {len(tokens)}.')
+        sys.exit(1)
+    if tokens[0] != project_name:
+        print(f'Expected at project name to be {project_name}, found {tokens[0]}.')
+        sys.exit(1)
+
+    print('-'.join(tokens[:2]))
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
@@ -391,9 +445,13 @@ if __name__ == '__main__':
         sys.exit(1)
     cmd = sys.argv[1]
     if cmd == 'parse_sdist_config':
-        parse_sdist_config(sys.argv[2])
-    if cmd == 'get_stage_matrices':
+        parse_config(ConfigStage.BUILD_SDIST, sys.argv[2])
+    elif cmd == 'get_stage_matrices':
         get_stage_matrices(sys.argv[2])
+    elif cmd == 'parse_wheel_config':
+        parse_config(ConfigStage.BUILD_WHEEL, sys.argv[2])
+    elif cmd == 'parse_wheel_name':
+        parse_wheel_name(sys.argv[2], sys.argv[3])
     else:
         print(f'Invalid command: {cmd}')
         sys.exit(1)

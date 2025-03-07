@@ -126,18 +126,27 @@ function setup_and_execute_linting {
     pre-commit run --all-files
 }
 
-function build_sdist {
-    echo "PROJECT_ROOT=$PROJECT_ROOT"
-    set_project_prefix
-
-    echo "Installing basic build dependencies."
-    python -m pip install --upgrade pip setuptools wheel
-
+function parse_build_config {
+    config_stage="${1:-}"
+    python_exe="${2:-python3}"
     build_config="${CBCI_CONFIG:-}"
-    echo "Parsing build config: $build_config"
+    echo "Parsing build config: $build_config for stage: $config_stage"
 
+    parse_cmd=""
+    if [ "$config_stage" == "sdist" ]; then
+        parse_cmd="parse_sdist_config"
+    elif [ "$config_stage" == "wheel" ]; then
+        parse_cmd="parse_wheel_config"
+    else
+        echo "Invalid config stage: $config_stage"
+        exit 1
+    fi
+    if [ -z "$parse_cmd" ]; then
+        echo "Unable to set parse command."
+        exit 1
+    fi
     exit_code=0
-    config_str=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_sdist_config" "CBCI_CONFIG") || exit_code=$?
+    config_str=$($python_exe "$CI_SCRIPTS_PATH/pygha.py" "$parse_cmd" "CBCI_CONFIG") || exit_code=$?
     if [ $exit_code -ne 0 ]; then
         echo "config_str=$config_str"
         echo "Failed to parse build config."
@@ -149,6 +158,17 @@ function build_sdist {
     env_vars=$(env | grep $PROJECT_PREFIX)
     echo "Environment variables:"
     echo "$env_vars"
+}
+
+function build_sdist {
+    echo "PROJECT_ROOT=$PROJECT_ROOT"
+    set_project_prefix
+
+    echo "Installing basic build dependencies."
+    python -m pip install --upgrade pip setuptools wheel
+
+    parse_build_config "sdist"
+
     cd $PROJECT_ROOT
     echo "Building C++ core CPM Cache."
     python setup.py configure_ext
@@ -210,6 +230,375 @@ function handle_cxx_change {
     fi
 }
 
+function extract_sdist {
+    sdist_name="$1"
+    echo "Extracting sdist: $sdist_name"
+    ls -alh
+    tar -xvzf $sdist_name.tar.gz
+    cp -r $sdist_name/. .
+    rm -rf $sdist_name
+}
+
+function build_openssl {
+    openssl_version="$1"
+    openssl_dir="$2"
+    LIB_CRYPTO=
+    LIB_SSL=
+
+    OPENSSL_BASE_URL=https://www.openssl.org/source/old
+    if [[ "$openssl_version" == *"1.1.1"* ]]; then
+        OPENSSL_BASE_URL="${OPENSSL_BASE_URL}/1.1.1"
+        LIB_CRYPTO="${openssl_dir}/lib/libcrypto.so.1.1"
+        LIB_SSL="${openssl_dir}/lib/libssl.so.1.1"
+    elif [[ "$openssl_version" == *"3.0"* ]]; then
+        OPENSSL_BASE_URL="${OPENSSL_BASE_URL}/3.0"
+        LIB_CRYPTO="${openssl_dir}/lib/libcrypto.so.3"
+        LIB_SSL="${openssl_dir}/lib/libssl.so.3"
+    elif [[ "$openssl_version" == *"3.1"* ]]; then
+        OPENSSL_BASE_URL="${OPENSSL_BASE_URL}/3.1"
+        LIB_CRYPTO="${openssl_dir}/lib/libcrypto.so.3.1"
+        LIB_SSL="${openssl_dir}/lib/libssl.so.3.1"
+    else
+        echo "Cannot install OpenSSL=${openssl_version}"
+        exit 1
+    fi
+
+    if [[ ! -f "${LIB_CRYPTO}" || ! -f "${LIB_SSL}" ]]; then
+        echo "Installing OpenSSL=${openssl_version}"
+        if [ ! -d "/usr/src" ]; then
+            mkdir /usr/src
+        fi
+        cd /usr/src &&
+            curl -L -o openssl-$openssl_version.tar.gz $OPENSSL_BASE_URL/openssl-$openssl_version.tar.gz &&
+            tar -xvf openssl-$openssl_version.tar.gz &&
+            mv openssl-$openssl_version openssl &&
+            cd openssl &&
+            ./config --prefix=$openssl_dir --openssldir=$openssl_dir shared zlib &&
+            make -j4 &&
+            make install_sw
+    else
+        echo "Found OpenSSL=${openssl_version}; libcrypto=${LIB_CRYPTO}, libssl=${LIB_SSL}"
+    fi
+}
+
+function in_allowed_python_versions {
+    local e match="$1"
+    shift
+    for e; do [[ "$e" == "$match" ]] && return 0; done
+    return 1
+}
+
+function get_cpython_version {
+    local cpython_version=""
+    case "$1" in
+    "3.7")
+        python_version="cp37-cp37m"
+        ;;
+    "3.8")
+        python_version="cp38-cp38"
+        ;;
+    "3.9")
+        python_version="cp39-cp39"
+        ;;
+    "3.10")
+        python_version="cp310-cp310"
+        ;;
+    "3.11")
+        python_version="cp311-cp311"
+        ;;
+    "3.12")
+        python_version="cp312-cp312"
+        ;;
+    "3.13")
+        python_version="cp313-cp313"
+        ;;
+    esac
+
+    echo "$python_version"
+}
+
+function get_python_version {
+    local python_version=""
+    case "$1" in
+    "cp37-cp37m")
+        python_version="3.7"
+        ;;
+    "cp38-cp38")
+        python_version="3.8"
+        ;;
+    "cp39-cp39")
+        python_version="3.9"
+        ;;
+    "cp310-cp310")
+        python_version="3.10"
+        ;;
+    "cp311-cp311")
+        python_version="3.11"
+        ;;
+    "cp312-cp312")
+        python_version="3.12"
+        ;;
+    "cp313-cp313")
+        python_version="3.13"
+        ;;
+    esac
+
+    echo "$python_version"
+}
+
+function repair_wheel {
+    default_python="$1"
+    wheel="$2"
+    if ! auditwheel show "$wheel"; then
+        echo "Skipping non-platform wheel $wheel"
+    else
+        $default_python $AUDITWHEEL repair "$wheel" --plat "$WHEEL_PLATFORM" -w $PYTHON_SDK_WHEELHOUSE
+    fi
+}
+
+function audit_abi3_wheel {
+    python_bin="$1"
+    default_python="$2"
+    wheel="$3"
+    echo "Auditing $wheel for abi3 compliance..."
+    report="abi3audit_report.json"
+    # we expect abi3audit to have a non-zero exit code, so catch it in an if-statement
+    if $python_bin/abi3audit --strict --report $wheel >$report; then
+        echo 'Finished parsing wheel.'
+    else
+        echo 'Finished parsing wheel.'
+    fi
+
+    if [ -s $report ]; then
+        echo 'Parsing audit report...'
+        $default_python $CHECK_ABI3AUDIT $report "pycbc"
+        #cleanup
+        rm "$report"
+    else
+        echo 'Audit report not created.'
+        exit 1
+    fi
+}
+
+function reduce_linux_wheel_size {
+
+    if [ ! -d "$PYTHON_SDK_DEBUG_WHEELHOUSE" ]; then
+        mkdir -p $PYTHON_SDK_DEBUG_WHEELHOUSE
+    fi
+
+    default_python="$1"
+    cd $PYTHON_SDK_WHEELHOUSE
+    if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
+        project_root="couchbase"
+        lib_path=$project_root
+        lib_name="pycbc_core"
+    else
+        project_root="couchbase_columnar"
+        lib_path="$project_root/protocol"
+        lib_name="pycbcc_core"
+    fi
+    for f in *.whl; do
+        echo "found wheel=$f"
+        if [[ $f == *"manylinux"* || $f == *"musllinux"* ]]; then
+            echo "Reducing wheel size of $f"
+            WHEEL_ROOT=$($default_python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $f "$project_root")
+            $default_python -m wheel unpack $f
+            mv $f $PYTHON_SDK_DEBUG_WHEELHOUSE
+            echo "checking dir..."
+            ls -alh
+            cd "$WHEEL_ROOT/$lib_path"
+            cp $lib_name.so $lib_name.orig.so
+            objcopy --only-keep-debug $lib_name.so $lib_name.debug.so
+            objcopy --strip-debug --strip-unneeded $lib_name.so
+            objcopy --add-gnu-debuglink=$lib_name.debug.so $lib_name.so
+            echo "grep $lib_name.so sizes"
+            ls -alh | grep ${PROJECT_PREFIX,,}
+            rm $lib_name.orig.so $lib_name.debug.so
+            echo "grep $lib_name.so sizes (should only have reduced size)"
+            ls -alh | grep ${PROJECT_PREFIX,,}
+            cd ../..
+            $default_python -m wheel pack $WHEEL_ROOT
+        else
+            echo "Wheel $f is not tagged as manylinux or musllinux, removing."
+            rm "$f"
+        fi
+    done
+}
+
+function reduce_macos_wheel_size {
+    wheel_name="$1"
+    wheel_path="$2"
+    wheel_debug_path="$2"
+    if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
+        project_root="couchbase"
+        lib_path=$project_root
+        lib_name="pycbc_core"
+    else
+        project_root="couchbase_columnar"
+        lib_path="$project_root/protocol"
+        lib_name="pycbcc_core"
+    fi
+    wheel_root=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
+    cd $wheel_path
+    python -m wheel unpack $wheel_name
+    ls -alh
+    mv $wheel_name $wheel_debug_path
+    cd "$wheel_root/$lib_path"
+    cp $lib_name.so $lib_name.orig.so
+    xcrun strip -Sx $lib_name.so
+    ls -alh | grep $lib_name
+    rm $lib_name.orig.so
+    cd $wheel_path
+    python -m wheel pack $wheel_root
+    ls -alh
+}
+
+function setup_linux_build_env {
+    python_bin="$1"
+    python_version="$2"
+    if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
+        export PYCBC_PYTHON3_EXECUTABLE="/opt/python/${python_bin}/bin/python${python_version}"
+        if [ $python_version == '3.7' ]; then
+            export PYCBC_PYTHON3_INCLUDE_DIR="/opt/python/${python_bin}/include/python${python_version}m"
+        else
+            export PYCBC_PYTHON3_INCLUDE_DIR="/opt/python/${python_bin}/include/python${python_version}"
+        fi
+    else
+        export PYCBCC_PYTHON3_EXECUTABLE="/opt/python/${python_bin}/bin/python${python_version}"
+        if [ $python_version == '3.7' ]; then
+            export PYCBCC_PYTHON3_INCLUDE_DIR="/opt/python/${python_bin}/include/python${python_version}m"
+        else
+            export PYCBCC_PYTHON3_INCLUDE_DIR="/opt/python/${python_bin}/include/python${python_version}"
+        fi
+    fi
+}
+
+function build_linux_wheels {
+    default_bin=/opt/python/cp39-cp39/bin
+    default_python=$default_bin/python
+    default_pip=$default_bin/pip
+    $default_python -m pip install auditwheel==6.1.0
+    if [[ -n "${USE_LIMITED_API-}" ]]; then
+        $default_python -m pip install abi3audit
+    fi
+
+    # allowed_python_versions=["cp37-cp37m",
+    #                          "cp38-cp38",
+    #                          "cp39-cp39",
+    #                          "cp310-cp310",
+    #                          "cp311-cp311",
+    #                          "cp312-cp312",
+    #                          "cp313-cp313"]
+    # 3.7 EOL 2023.06.30, keep in list just in case, but CI pipeline sets CPYTHON_VERSIONS
+    # 3.8 EOL 2024.10.07, keep in list just in case, but CI pipeline sets CPYTHON_VERSIONS
+
+    if [ -z "$PYTHON_VERSIONS" ]; then
+        echo "PYTHON_VERSIONS is not set."
+        exit 1
+    fi
+
+    cpython_versions=()
+    for version in $PYTHON_VERSIONS; do
+        cpython_versions+=$(get_cpython_version "${version}")
+    done
+
+    $default_pip list
+
+    parse_build_config "wheel" $default_python
+
+    if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
+        if [[ -n "${PYCBC_USE_OPENSSL-}" && "$PYCBC_USE_OPENSSL" = true && -n "${PYCBC_OPENSSL_VERSION-}" ]]; then
+            openssl_dir=/usr/local/openssl
+            build_openssl "$PYCBC_OPENSSL_VERSION" "$openssl_dir"
+            export PYCBC_OPENSSL_DIR=$openssl_dir
+        fi
+    else
+        if [[ -n "${PYCBCC_USE_OPENSSL-}" && "$PYCBCC_USE_OPENSSL" = true && -n "${PYCBCC_OPENSSL_VERSION-}" ]]; then
+            openssl_dir=/usr/local/openssl
+            build_openssl "$PYCBCC_OPENSSL_VERSION" "$openssl_dir"
+            export PYCBC_OPENSSL_DIR=$openssl_dir
+        fi
+    fi
+
+    # Compile wheels
+    for PYBIN in /opt/python/*; do
+        python_bin="${PYBIN##*/}"
+        if in_allowed_python_versions "${python_bin}" "${cpython_versions[@]}"; then
+            python_version=$(get_python_version "${python_bin}")
+            setup_linux_build_env "${python_bin}" "${python_version}"
+            if [[ -n "${PYCBC_VERBOSE_MAKEFILE-}" || -n "${PYCBCC_VERBOSE_MAKEFILE-}" ]]; then
+                "/opt/python/${python_bin}/bin/pip" wheel $PYTHON_SDK_WORKDIR --no-deps -w $PYTHON_SDK_WHEELHOUSE -v -v -v
+            else
+                "/opt/python/${python_bin}/bin/pip" wheel $PYTHON_SDK_WORKDIR --no-deps -w $PYTHON_SDK_WHEELHOUSE
+            fi
+        fi
+    done
+
+    # Bundle external shared libraries into the wheels
+    # we use a monkey patched version of auditwheel in order to not bundle
+    # OpenSSL libraries (see auditwheel-update)
+    for whl in $PYTHON_SDK_WHEELHOUSE/*.whl; do
+        if [[ -n "${PYCBC_LIMITED_API-}" || -n "${PYCBCC_LIMITED_API-}" ]]; then
+            audit_abi3_wheel "$whl"
+        fi
+        repair_wheel "$default_python" "$whl"
+        reduce_linux_wheel_size "$default_python"
+    done
+}
+
+function build_macos_wheels {
+    arch="$1"
+
+    python -m pip install --upgrade pip setuptools wheel
+
+    parse_build_config "wheel"
+
+    wheel_path="$PROJECT_ROOT/wheelhouse/dist"
+    wheel_debug_path="$PROJECT_ROOT/wheelhouse/dist_debug"
+    if [ ! -d "$wheel_path" ]; then
+        mkdir -p "$wheel_path"
+    fi
+    if [ ! -d "$wheel_debug_path" ]; then
+        mkdir "$wheel_debug_path"
+    fi
+
+    if [[ -n "${PYCBC_VERBOSE_MAKEFILE-}" || -n "${PYCBCC_VERBOSE_MAKEFILE-}" ]]; then
+        python -m pip wheel . --no-deps -w "$wheel_path" -v -v -v
+    else
+        python -m pip wheel . --no-deps -w "$wheel_path"
+    fi
+    cd $wheel_path
+    wheel_name=$(find . -name '*.whl' | cut -c 3-)
+    echo "wheel_name=$wheel_name"
+    reduce_macos_wheel_size "$wheel_name" "$wheel_path" "$wheel_debug_path"
+
+    # python -m pip install delocate
+    # cd $wheel_path
+    # delocate-wheel --require-archs $arch -v $wheel_name
+}
+
+function build_wheels {
+    arch="${1:-}"
+    echo "PROJECT_ROOT=$PROJECT_ROOT"
+    set_project_prefix
+
+    if [ -z "${SDIST_NAME-}" ]; then
+        echo "SDIST_NAME is not set."
+        exit 1
+    fi
+
+    extract_sdist "$SDIST_NAME"
+
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        build_linux_wheels
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        build_macos_wheels $arch
+    else
+        echo "Cannot build wheel for unsupported OS: $OSTYPE"
+        exit 1
+    fi
+}
+
 cmd="${1:-empty}"
 
 if [ "$cmd" == "display_info" ]; then
@@ -224,6 +613,8 @@ elif [ "$cmd" == "get_sdist_name" ]; then
     get_sdist_name
 elif [ "$cmd" == "get_stage_matrices" ]; then
     get_stage_matrices
+elif [ "$cmd" == "wheel" ]; then
+    build_wheels "${@:2}"
 else
     echo "Invalid command: $cmd"
 fi
