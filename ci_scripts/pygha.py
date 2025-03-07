@@ -81,6 +81,8 @@ DEFAULT_CONFIG = {
     },
 }
 
+STAGE_MATRIX_KEYS = ['python-versions', 'python_versions', 'arches', 'platforms']
+
 
 def get_env_variable(key: str, quiet: Optional[bool] = False) -> str:
     try:
@@ -410,8 +412,10 @@ def parse_config(config_stage: ConfigStage, config_key: str) -> None:
 
     cfg = {}
     for key, value in user_config.items():
+        if key in STAGE_MATRIX_KEYS:
+            continue
         if key not in default_cfg:
-            print(f'Invalid key: {key}. Ignoring.')
+            # print(f'Invalid key: {key}. Ignoring.')
             continue
         if value in [True, False]:
             cfg[key] = 'ON' if value else 'OFF'
