@@ -529,29 +529,29 @@ function build_linux_wheels {
     fi
 
     # Compile wheels
-    # for PYBIN in /opt/python/*; do
-    #     python_bin="${PYBIN##*/}"
-    #     if in_allowed_python_versions "${python_bin}" "${cpython_versions[@]}"; then
-    #         python_version=$(get_python_version "${python_bin}")
-    #         setup_linux_build_env "${python_bin}" "${python_version}"
-    #         if [[ -n "${PYCBC_VERBOSE_MAKEFILE-}" || -n "${PYCBCC_VERBOSE_MAKEFILE-}" ]]; then
-    #             "/opt/python/${python_bin}/bin/pip" wheel $PYTHON_SDK_WORKDIR --no-deps -w $PYTHON_SDK_WHEELHOUSE -v -v -v
-    #         else
-    #             "/opt/python/${python_bin}/bin/pip" wheel $PYTHON_SDK_WORKDIR --no-deps -w $PYTHON_SDK_WHEELHOUSE
-    #         fi
-    #     fi
-    # done
+    for PYBIN in /opt/python/*; do
+        python_bin="${PYBIN##*/}"
+        if in_allowed_python_versions "${python_bin}" "${cpython_versions[@]}"; then
+            python_version=$(get_python_version "${python_bin}")
+            setup_linux_build_env "${python_bin}" "${python_version}"
+            if [[ -n "${PYCBC_VERBOSE_MAKEFILE-}" || -n "${PYCBCC_VERBOSE_MAKEFILE-}" ]]; then
+                "/opt/python/${python_bin}/bin/pip" wheel $PYTHON_SDK_WORKDIR --no-deps -w $PYTHON_SDK_WHEELHOUSE -v -v -v
+            else
+                "/opt/python/${python_bin}/bin/pip" wheel $PYTHON_SDK_WORKDIR --no-deps -w $PYTHON_SDK_WHEELHOUSE
+            fi
+        fi
+    done
 
-    # # Bundle external shared libraries into the wheels
-    # # we use a monkey patched version of auditwheel in order to not bundle
-    # # OpenSSL libraries (see auditwheel-update)
-    # for whl in $PYTHON_SDK_WHEELHOUSE/*.whl; do
-    #     if [[ -n "${PYCBC_LIMITED_API-}" || -n "${PYCBCC_LIMITED_API-}" ]]; then
-    #         audit_abi3_wheel "$whl"
-    #     fi
-    #     repair_wheel "$default_python" "$whl"
-    #     reduce_linux_wheel_size "$default_python"
-    # done
+    # Bundle external shared libraries into the wheels
+    # we use a monkey patched version of auditwheel in order to not bundle
+    # OpenSSL libraries (see auditwheel-update)
+    for whl in $PYTHON_SDK_WHEELHOUSE/*.whl; do
+        if [[ -n "${PYCBC_LIMITED_API-}" || -n "${PYCBCC_LIMITED_API-}" ]]; then
+            audit_abi3_wheel "$whl"
+        fi
+        repair_wheel "$default_python" "$whl"
+        reduce_linux_wheel_size "$default_python"
+    done
 }
 
 function build_macos_wheels {
@@ -631,7 +631,7 @@ function save_shared_obj {
 
     cd $full_wheel_path
     wheel_name=$(find . -name '*.whl' | cut -c 3-)
-    
+
     # if running w/in the manylinux container, we need to set the python executable path
     # this should be only for local testing
     # default_python=/opt/python/cp39-cp39/bin/python
