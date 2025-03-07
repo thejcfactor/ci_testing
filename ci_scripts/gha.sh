@@ -441,19 +441,23 @@ function reduce_macos_wheel_size {
     wheel_root=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
     cd $wheel_path
     python -m wheel unpack $wheel_name
+    echo "$wheel_path contents:"
     ls -alh
     mv $wheel_name $wheel_debug_path
     echo "Moving to $wheel_root/$lib_path"
     cd "$wheel_root/$lib_path"
+    echo "$wheel_root/$lib_path contents:"
     ls -alh
     echo "Copying $lib_name.so to $lib_name.orig.so"
     cp $lib_name.so $lib_name.orig.so
     echo "Stripping $lib_name.so"
     xcrun strip -Sx $lib_name.so
+    echo "grep $lib_name output:"
     ls -alh | grep $lib_name
     rm $lib_name.orig.so
     cd $wheel_path
     python -m wheel pack $wheel_root
+    echo "$wheel_path contents:"
     ls -alh
 }
 
