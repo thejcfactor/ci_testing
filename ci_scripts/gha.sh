@@ -401,12 +401,12 @@ function reduce_linux_wheel_size {
         echo "found wheel=$f"
         if [[ $f == *"manylinux"* || $f == *"musllinux"* ]]; then
             echo "Reducing wheel size of $f"
-            WHEEL_ROOT=$($default_python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $f "$project_root")
+            wheel_root=$($default_python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $f "$project_root")
             $default_python -m wheel unpack $f
             mv $f $PYTHON_SDK_DEBUG_WHEELHOUSE
             echo "checking dir..."
             ls -alh
-            cd "$WHEEL_ROOT/$lib_path"
+            cd "$wheel_root/$lib_path"
             cp $lib_name.so $lib_name.orig.so
             objcopy --only-keep-debug $lib_name.so $lib_name.debug.so
             objcopy --strip-debug --strip-unneeded $lib_name.so
@@ -417,7 +417,7 @@ function reduce_linux_wheel_size {
             echo "grep $lib_name.so sizes (should only have reduced size)"
             ls -alh | grep ${PROJECT_PREFIX,,}
             cd ../..
-            $default_python -m wheel pack $WHEEL_ROOT
+            $default_python -m wheel pack $wheel_root
         else
             echo "Wheel $f is not tagged as manylinux or musllinux, removing."
             rm "$f"
@@ -607,6 +607,56 @@ function build_wheels {
     fi
 }
 
+function save_shared_obj {
+    set_project_prefix
+    wheel_path="$1"
+    output_path="$2"
+    if [[ "$OSTYPE" != "linux-gnu" ]]; then
+        echo "Cannot save shared object on unexpected OS.  Expected linux OS, got: $OSTYPE"
+        exit 1
+    fi
+
+    if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
+        project_root="couchbase"
+        lib_path=$project_root
+        lib_name="pycbc_core"
+    else
+        project_root="couchbase_columnar"
+        lib_path="$project_root/protocol"
+        lib_name="pycbcc_core"
+    fi
+
+    full_wheel_path="$PROJECT_ROOT/$wheel_path"
+    full_output_path="$PROJECT_ROOT/$output_path"
+
+    cd $full_wheel_path
+    wheel_name=$(find . -name '*.whl' | cut -c 3-)
+
+    # if running w/in the manylinux container, we need to set the python executable path
+    # this should be only for local testing
+    # default_python=/opt/python/cp39-cp39/bin/python
+    # wheel_root=$($default_python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
+    # $default_python -m wheel unpack $wheel_name
+    # if running outside the manylinux container, we can use the python
+    wheel_root=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
+    python -m wheel unpack $wheel_name
+    echo "$full_wheel_path contents:"
+    ls -alh
+    echo "Moving to $wheel_root/$lib_path"
+    cd "$wheel_root/$lib_path"
+    echo "$wheel_root/$lib_path contents:"
+    ls -alh
+
+    if [ ! -d "$full_output_path" ]; then
+        mkdir -p "$full_output_path"
+    fi
+
+    echo "Copying $lib_name.so to $output_path"
+    cp $lib_name.so $full_output_path/$lib_name.so
+    echo "Confirming $output_path contents:"
+    ls -alh $full_output_path
+}
+
 cmd="${1:-empty}"
 
 if [ "$cmd" == "display_info" ]; then
@@ -623,6 +673,8 @@ elif [ "$cmd" == "get_stage_matrices" ]; then
     get_stage_matrices
 elif [ "$cmd" == "wheel" ]; then
     build_wheels "${@:2}"
+elif [ "$cmd" == "save_shared_obj" ]; then
+    save_shared_obj "${@:2}"
 else
     echo "Invalid command: $cmd"
 fi
