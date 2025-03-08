@@ -417,14 +417,12 @@ function reduce_linux_wheel_size {
             echo "grep $lib_name.so sizes (should only have reduced size)"
             ls -alh | grep ${PROJECT_PREFIX,,}
             cd ../..
-            chmod -R 777 $wheel_root
             $default_python -m wheel pack $wheel_root
         else
             echo "Wheel $f is not tagged as manylinux or musllinux, removing."
             rm "$f"
         fi
     done
-    chmod -R 777 $PYTHON_SDK_WHEELHOUSE
 }
 
 function reduce_macos_wheel_size {
@@ -636,14 +634,14 @@ function save_shared_obj {
 
     # if running w/in the manylinux container, we need to set the python executable path
     # this should be only for local testing
-    # default_python=/opt/python/cp39-cp39/bin/python
-    # $default_python -m pip install wheel
-    # wheel_root=$($default_python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
-    # $default_python -m wheel unpack $wheel_name
+    default_python=/opt/python/cp39-cp39/bin/python
+    $default_python -m pip install wheel
+    wheel_root=$($default_python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
+    $default_python -m wheel unpack $wheel_name
     # if running outside the manylinux container, we can use the python
-    python -m pip install wheel
-    wheel_root=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
-    python -m wheel unpack $wheel_name
+    # python -m pip install wheel
+    # wheel_root=$(python "$CI_SCRIPTS_PATH/pygha.py" "parse_wheel_name" $wheel_name "$project_root")
+    # python -m wheel unpack $wheel_name
     echo "$full_wheel_path contents:"
     ls -alh
     echo "Moving to $wheel_root/$lib_path"
