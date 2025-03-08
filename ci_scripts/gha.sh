@@ -456,6 +456,7 @@ function reduce_macos_wheel_size {
     ls -alh | grep $lib_name
     rm $lib_name.orig.so
     cd $wheel_path
+    chmod -R 777 $wheel_root
     python -m wheel pack $wheel_root
     echo "$wheel_path contents:"
     ls -alh
