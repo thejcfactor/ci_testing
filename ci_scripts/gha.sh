@@ -417,12 +417,14 @@ function reduce_linux_wheel_size {
             echo "grep $lib_name.so sizes (should only have reduced size)"
             ls -alh | grep ${PROJECT_PREFIX,,}
             cd ../..
+            chmod -R 777 $wheel_root
             $default_python -m wheel pack $wheel_root
         else
             echo "Wheel $f is not tagged as manylinux or musllinux, removing."
             rm "$f"
         fi
     done
+    chmod -R 777 $PYTHON_SDK_WHEELHOUSE
 }
 
 function reduce_macos_wheel_size {
@@ -456,7 +458,6 @@ function reduce_macos_wheel_size {
     ls -alh | grep $lib_name
     rm $lib_name.orig.so
     cd $wheel_path
-    chmod -R 777 $wheel_root
     python -m wheel pack $wheel_root
     echo "$wheel_path contents:"
     ls -alh
