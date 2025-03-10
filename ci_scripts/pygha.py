@@ -260,7 +260,7 @@ def build_linux_stage_matrix(python_versions: List[str],
         if linux_matrix:
             linux_matrix['python-version'] = python_versions
             if 'aarch64' in linux_matrix['arch'] and 'musllinux' in linux_matrix['linux-type']:
-                linux_matrix['exlude'] = [{'linux-type': 'musllinux', 'arch': 'aarch64'}]
+                linux_matrix['exclude'] = [{'linux-type': 'musllinux', 'arch': 'aarch64'}]
     elif stage == ConfigStage.VALIDATE_WHEEL:
         if 'linux' in x86_64_platforms:
             linux_container = get_env_variable('CBCI_DEFAULT_LINUX_CONTAINER')
@@ -290,7 +290,7 @@ def build_linux_stage_matrix(python_versions: List[str],
             if 'aarch64' in linux_matrix['arch'] and 'container' in linux_matrix:
                 alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
                 if alpine_container in linux_matrix['container']:
-                    linux_matrix['exlude'] = [{'container': alpine_container, 'arch': 'aarch64'}]
+                    linux_matrix['exclude'] = [{'container': alpine_container, 'arch': 'aarch64'}]
 
     return linux_matrix
 
@@ -321,7 +321,7 @@ def build_macos_stage_matrix(python_versions: List[str],
             if 'arm64' in macos_matrix['arch'] and 'x86_64' in macos_matrix['arch']:
                 macos_x86_64_plat = get_env_variable('CBCI_DEFAULT_MACOS_X86_64_PLATFORM')
                 macos_arm64_plat = get_env_variable('CBCI_DEFAULT_MACOS_ARM64_PLATFORM')
-                macos_matrix['exlude'] = [{'os': macos_x86_64_plat, 'arch': 'arm64'},
+                macos_matrix['exclude'] = [{'os': macos_x86_64_plat, 'arch': 'arm64'},
                                           {'os': macos_arm64_plat, 'arch': 'x86_64'}]
     elif stage == ConfigStage.VALIDATE_WHEEL:
         if 'macos' in x86_64_platforms:
