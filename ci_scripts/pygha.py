@@ -169,7 +169,7 @@ def is_supported_python_version(version: str) -> bool:
 def set_python_versions(user_config: str) -> List[str]:
     versions = []
     try:
-        user_python_versions = user_config.split()
+        user_python_versions = user_config.replace(',', ' ').split()
         for version in user_python_versions:
             if not is_supported_python_version(version):
                 print(f'Unsupported Python version: {version}. Ignoring.')
@@ -185,7 +185,7 @@ def set_python_versions(user_config: str) -> List[str]:
 def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], List[str]]:
     arches = []
     try:
-        arches = list(map(lambda a: a.lower(), user_arches.split()))
+        arches = list(map(lambda a: a.strip().lower(), user_arches.replace(',', ' ').split()))
         for arch in arches:
             if arch not in get_supported_architectures():
                 print(f'Unsupported architecture: {arch}. Ignoring.')
@@ -203,7 +203,7 @@ def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], L
     x86_64_platforms = []
     if 'x86_64' in arches:
         try:
-            platforms = list(map(lambda p: p.lower(), user_platforms.split()))
+            platforms = list(map(lambda p: p.strip().lower(), user_platforms.replace(',', ' ').split()))
             for platform in platforms:
                 if platform not in get_supported_platforms(arch):
                     print(f'Unsupported x86_64 platform: {platform}. Ignoring.')
@@ -218,7 +218,7 @@ def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], L
     arm64_platforms = []
     if 'arm64' in arches or 'aarch64' in arches:
         try:
-            platforms = list(map(lambda p: p.lower(), user_platforms.split()))
+            platforms = list(map(lambda p: p.strip().lower(), user_platforms.replace(',', ' ').split()))
             for platform in platforms:
                 if platform not in get_supported_platforms(arch):
                     print(f'Unsupported arm64 platform: {platform}. Ignoring.')
