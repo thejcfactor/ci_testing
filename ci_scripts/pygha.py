@@ -205,7 +205,7 @@ def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], L
         try:
             platforms = list(map(lambda p: p.strip().lower(), user_platforms.replace(',', ' ').split()))
             for platform in platforms:
-                if platform not in get_supported_platforms(arch):
+                if platform not in get_supported_platforms('x86_64'):
                     print(f'Unsupported x86_64 platform: {platform}. Ignoring.')
                     continue
                 x86_64_platforms.append(platform)
@@ -220,7 +220,7 @@ def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], L
         try:
             platforms = list(map(lambda p: p.strip().lower(), user_platforms.replace(',', ' ').split()))
             for platform in platforms:
-                if platform not in get_supported_platforms(arch):
+                if platform not in get_supported_platforms('arm64'):
                     print(f'Unsupported arm64 platform: {platform}. Ignoring.')
                     continue
                 arm64_platforms.append(platform)
