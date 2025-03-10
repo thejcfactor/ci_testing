@@ -597,7 +597,7 @@ function build_wheels {
 
     extract_sdist "$SDIST_NAME"
 
-    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+    if [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "linux-musl" ]]; then
         build_linux_wheels
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         build_macos_wheels $arch
