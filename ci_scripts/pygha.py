@@ -166,32 +166,38 @@ def is_supported_python_version(version: str) -> bool:
     return False
 
 
-def set_python_versions(user_config: str) -> List[str]:
+def set_python_versions(user_config: str, quiet: Optional[bool]=True) -> List[str]:
     versions = []
     try:
         user_python_versions = user_config.replace(',', ' ').split()
         for version in user_python_versions:
             if not is_supported_python_version(version):
-                print(f'Unsupported Python version: {version}. Ignoring.')
+                if not quiet:
+                    print(f'Unsupported Python version: {version}. Ignoring.')
                 continue
             versions.append(version)
 
     except Exception as e:
-        print(f'Unable to parse user provided Python versions: {e}. Ignoring.')
+        if not quiet:
+            print(f'Unable to parse user provided Python versions: {e}. Ignoring.')
 
     return versions
 
 
-def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], List[str]]:
+def set_os_and_arch(user_platforms: str,
+                    user_arches: str,
+                    quiet: Optional[bool]=True) -> Tuple[List[str], List[str]]:
     arches = []
     try:
         arches = list(map(lambda a: a.strip().lower(), user_arches.replace(',', ' ').split()))
         for arch in arches:
             if arch not in get_supported_architectures():
-                print(f'Unsupported architecture: {arch}. Ignoring.')
+                if not quiet:
+                    print(f'Unsupported architecture: {arch}. Ignoring.')
                 arches.remove(arch)
     except Exception as e:
-        print(f'Unable to parse user provided arches: {e}. Ignoring.')
+        if not quiet:
+            print(f'Unable to parse user provided arches: {e}. Ignoring.')
 
     if not arches:
         arches = get_supported_architectures()[:-1]
@@ -206,11 +212,13 @@ def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], L
             platforms = list(map(lambda p: p.strip().lower(), user_platforms.replace(',', ' ').split()))
             for platform in platforms:
                 if platform not in get_supported_platforms('x86_64'):
-                    print(f'Unsupported x86_64 platform: {platform}. Ignoring.')
+                    if not quiet:
+                        print(f'Unsupported x86_64 platform: {platform}. Ignoring.')
                     continue
                 x86_64_platforms.append(platform)
         except Exception as e:
-            print(f'Unable to parse user provided arches: {e}. Ignoring.')
+            if not quiet:
+                print(f'Unable to parse user provided arches: {e}. Ignoring.')
 
         if not x86_64_platforms:
             x86_64_platforms = get_supported_platforms('x86_64')
@@ -221,11 +229,13 @@ def set_os_and_arch(user_platforms: str, user_arches: str) -> Tuple[List[str], L
             platforms = list(map(lambda p: p.strip().lower(), user_platforms.replace(',', ' ').split()))
             for platform in platforms:
                 if platform not in get_supported_platforms('arm64'):
-                    print(f'Unsupported arm64 platform: {platform}. Ignoring.')
+                    if not quiet:
+                        print(f'Unsupported arm64 platform: {platform}. Ignoring.')
                     continue
                 arm64_platforms.append(platform)
         except Exception as e:
-            print(f'Unable to parse user provided arches: {e}. Ignoring.')
+            if not quiet:
+                print(f'Unable to parse user provided arches: {e}. Ignoring.')
 
         if not arm64_platforms:
             arm64_platforms = get_supported_platforms('arm64')
@@ -386,10 +396,12 @@ def build_stage_matrices(python_versions: List[str],
     return matrices
 
 
-def parse_user_config(config_key: str) -> Dict[str, List[str]]:
+def parse_user_config(config_key: str, quiet: Optional[bool]=True) -> Dict[str, List[str]]:
     user_config = user_config_as_json(config_key)
     cfg = {}
-    versions = set_python_versions(user_config.get('python_versions', user_config.get('python-versions', '')))
+    versions = set_python_versions(user_config.get('python_versions',
+                                                   user_config.get('python-versions', '')),
+                                    quiet=quiet)
     if versions:
         cfg['python_versions'] = versions
     else:
@@ -397,14 +409,14 @@ def parse_user_config(config_key: str) -> Dict[str, List[str]]:
 
     user_platforms = user_config.get('platforms', '')
     user_arches = user_config.get('arches', '')
-    x86_64_platforms, arm64_platforms = set_os_and_arch(user_platforms, user_arches)
+    x86_64_platforms, arm64_platforms = set_os_and_arch(user_platforms, user_arches, quiet=quiet)
     cfg['x86_64_platforms'] = x86_64_platforms
     cfg['arm64_platforms'] = arm64_platforms
     return cfg
 
 
-def get_stage_matrices(config_key: str) -> None:
-    config = parse_user_config(config_key)
+def get_stage_matrices(config_key: str, quiet: Optional[bool]=True) -> None:
+    config = parse_user_config(config_key, quiet=quiet)
     matrices = build_stage_matrices(config['python_versions'], config['x86_64_platforms'], config['arm64_platforms'])
     print(f'{json.dumps(matrices)}')
 
