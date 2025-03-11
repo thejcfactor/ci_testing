@@ -611,7 +611,7 @@ function save_shared_obj {
     set_project_prefix
     wheel_path="$1"
     output_path="$2"
-    if [[ "$OSTYPE" != "linux-gnu" && "$OSTYPE" != "linux-musl" ]]; then
+    if [[ "$OSTYPE" != "linux-gnu" ]]; then
         echo "Cannot save shared object on unexpected OS.  Expected linux OS, got: $OSTYPE"
         exit 1
     fi
