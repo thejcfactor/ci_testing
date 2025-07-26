@@ -22,6 +22,7 @@ function display_info {
     echo "version=${CBCI_VERSION:-}"
     echo "cxx_change=${CBCI_CXX_CHANGE:-}"
     echo "build_config=${CBCI_CONFIG:-}"
+    echo "use_uv=${CBCI_USE_UV:-}"
     echo "PROJECT_TYPE=$CBCI_PROJECT_TYPE"
     echo "DEFAULT_PYTHON=$CBCI_DEFAULT_PYTHON"
     echo "SUPPORTED_PYTHON_VERSIONS=$CBCI_SUPPORTED_PYTHON_VERSIONS"
@@ -84,6 +85,8 @@ function set_project_prefix {
         PROJECT_PREFIX="PYCBC"
     elif [[ "$project_type" == "COLUMNAR" || "$project_type" == "PYCBCC" ]]; then
         PROJECT_PREFIX="PYCBCC"
+    elif [[ "$project_type" == "ANALYTICS" || "$project_type" == "PYCBAC" ]]; then
+        PROJECT_PREFIX="PYCBAC"
     else
         echo "Invalid project type: $project_type"
         exit 1
@@ -105,6 +108,12 @@ function set_client_version {
             exit 1
         fi
         version_script="couchbase_columnar_version.py"
+    elif [ "$PROJECT_PREFIX" == "PYCBAC" ]; then
+        if [ ! -f "couchbase_analytics_version.py" ]; then
+            echo "Missing expected files.  Confirm checkout has completed successfully."
+            exit 1
+        fi
+        version_script="couchbase_analytics_version.py"
     else
         echo "Invalid project prefix: $PROJECT_PREFIX"
         exit 1
@@ -115,14 +124,31 @@ function set_client_version {
         git config user.email "sdk_dev@couchbase.com"
         git tag -a $version -m "Release of client version $version"
     fi
-    python $version_script --mode make
+
+    if [ "$PROJECT_PREFIX" == "PYCBAC" ]; then
+        python $version_script --mode make --update-pyproject
+    else
+        python $version_script --mode make
+    fi
 }
 
 function setup_and_execute_linting {
+    set_project_prefix
+    if [ ! -z  ]; then
+        uv sync --locked --no-group sphinx
+    else
+        python -m pip install --upgrade pip setuptools wheel
+        if [ "$PROJECT_PREFIX" == "PYCBAC" ]; then
+            echo "Running pip install for dev requirements."
+            python -m pip install -r requirements-dev.txt
+        fi
+        echo "Running pip install for requirements."
+        python -m pip install -r requirements.txt
+        python -m pip install pre-commit
+    fi
+    # install dev dependencies first and then set the client version.
+    # Required for the EA client as it will update the pyproject.toml file via tomli/tomli-w
     set_client_version
-    python -m pip install --upgrade pip setuptools wheel
-    python -m pip install -r requirements.txt
-    python -m pip install pre-commit
     pre-commit run --all-files
 }
 
@@ -170,11 +196,14 @@ function build_sdist {
     parse_build_config "sdist"
 
     cd $PROJECT_ROOT
-    echo "Building C++ core CPM Cache."
-    python setup.py configure_ext
-    set_client_version
 
-    rm -rf ./build
+    if [ "$PROJECT_PREFIX" != "PYCBAC" ]; then
+        echo "Building C++ core CPM Cache."
+        python setup.py configure_ext
+        set_client_version
+        rm -rf ./build
+    fi
+
     echo "Building source distribution."
     python setup.py sdist
     cd dist
@@ -585,10 +614,30 @@ function build_macos_wheels {
     # delocate-wheel --require-archs $arch -v $wheel_name
 }
 
+function build_analytics_wheel {
+    cd $PROJECT_ROOT
+    if [ ! -z "${CBCI_USE_UV:-}" ]; then
+        uv build
+    else
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip wheel . --no-deps -w dist
+        rm -rf build
+        egg_info_dir=$(find . -name '*.egg-info' | cut -c 3-)
+        if [ ! -z "${egg_info_dir}" ]; then
+            rm -rf $egg_info_dir
+        fi
+    fi
+}
+
 function build_wheels {
     arch="${1:-}"
     echo "PROJECT_ROOT=$PROJECT_ROOT"
     set_project_prefix
+
+    if [ "$PROJECT_PREFIX" == "PYCBAC" ]; then
+        build_analytics_wheel
+        return
+    fi
 
     if [ -z "${SDIST_NAME-}" ]; then
         echo "SDIST_NAME is not set."
@@ -659,6 +708,90 @@ function save_shared_obj {
     ls -alh $full_output_path
 }
 
+function build_test_setup {
+    arch="${1:-}"
+    echo "PROJECT_ROOT=$PROJECT_ROOT"
+    set_project_prefix
+    test_path=$PROJECT_ROOT
+
+    if [ "$PROJECT_PREFIX" == "PYCBC" ]; then
+        mkdir pycbc_test
+        mkdir -p pycbc_test/acb/tests
+        mkdir -p pycbc_test/cb/tests
+        mkdir -p pycbc_test/txcb/tests
+        mkdir -p pycbc_test/tests
+        cp -r acouchbase/tests/*.py pycbc_test/acb/tests
+        cp -r couchbase/tests/*.py pycbc_test/cb/tests
+        cp -r txcouchbase/tests/*.py pycbc_test/txcb/tests
+        cp -r tests/** pycbc_test/tests
+        touch pycbc_test/acb/__init__.py
+        touch pycbc_test/cb/__init__.py
+        touch pycbc_test/txcb/__init__.py
+        # TODO:  need to test, as couchbase is a subset of acouchbase and txcouchbase
+        sed "s/couchbase\/tests/cb\/tests/g; s/== 'couchbase'/== 'cb'/; s/== 'acouchbase'/== 'acb'/; s/== 'txcouchbase'/== 'txcb'/;" conftest.py > pycbc_test/conftest.py
+        test_path="${test_path}/pycbc_test"
+    elif [ "$PROJECT_PREFIX" == "PYCBCC" ]; then
+        mkdir pycbcc_test
+        mkdir -p pycbcc_test/acb/tests
+        mkdir -p pycbcc_test/cb/tests
+        mkdir -p pycbcc_test/tests
+        cp -r acouchbase_columnar/tests/*.py pycbcc_test/acb/tests
+        cp -r couchbase_columnar/tests/*.py pycbcc_test/cb/tests
+        cp -r tests/** pycbcc_test/tests
+        touch pycbcc_test/acb/__init__.py
+        touch pycbcc_test/cb/__init__.py
+        sed "s/couchbase_columnar\/tests/cb\/tests/g; s/== 'couchbase_columnar'/== 'cb'/; s/== 'acouchbase_columnar'/== 'acb'/;" conftest.py > pycbcc_test/conftest.py
+        test_path="${test_path}/pycbcc_test"
+    elif [ "$PROJECT_PREFIX" == "PYCBAC" ]; then
+        mkdir pycbac_test
+        mkdir -p pycbac_test/acb/tests
+        mkdir -p pycbac_test/cb/tests
+        mkdir -p pycbac_test/tests
+        cp -r acouchbase_analytics/tests/*.py pycbac_test/acb/tests
+        cp -r couchbase_analytics/tests/*.py pycbac_test/cb/tests
+        cp -r tests/** pycbac_test/tests
+        touch pycbac_test/acb/__init__.py
+        touch pycbac_test/cb/__init__.py
+        sed "s/couchbase_analytics\/tests/cb\/tests/g; s/== 'couchbase_analytics'/== 'cb'/; s/== 'acouchbase_analytics'/== 'acb'/;" conftest.py > pycbac_test/conftest.py
+        test_path="${test_path}/pycbac_test"
+    else
+        echo "Invalid project prefix: $PROJECT_PREFIX"
+        exit 1
+    fi
+
+    exit_code=0
+    output_msg=$(python "$CI_SCRIPTS_PATH/pygha.py" "build_test_ini" "$test_path") || exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "output_msg=$output_msg"
+        echo "Failed to build test_config.ini."
+        exit 1
+    fi
+    # we need to parse the pyproject.toml to create the pytest.ini file
+    python -m pip install tomli
+    output_msg=$(python "$CI_SCRIPTS_PATH/pygha.py" "build_pytest_ini" "${PROJECT_ROOT}/pyproject.toml" "$test_path") || exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "output_msg=$output_msg"
+        echo "Failed to build pytest.ini."
+        exit 1
+    fi
+    python -m pip uninstall tomli -y
+
+    output_msg=$(python "$CI_SCRIPTS_PATH/pygha.py" "build_dev_requirements" "$test_path") || exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "output_msg=$output_msg"
+        echo "Failed to build dev requirements."
+        exit 1
+    fi
+
+    output_msg=$(python "$CI_SCRIPTS_PATH/pygha.py" "build_cbdino_config_yaml" "$test_path") || exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "output_msg=$output_msg"
+        echo "Failed to build cbdino cluster config yaml."
+        exit 1
+    fi
+    
+}
+
 cmd="${1:-empty}"
 
 if [ "$cmd" == "display_info" ]; then
@@ -677,6 +810,8 @@ elif [ "$cmd" == "wheel" ]; then
     build_wheels "${@:2}"
 elif [ "$cmd" == "save_shared_obj" ]; then
     save_shared_obj "${@:2}"
+elif [ "$cmd" == "build_test_setup" ]; then
+    build_test_setup
 else
     echo "Invalid command: $cmd"
 fi

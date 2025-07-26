@@ -2,30 +2,58 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 from copy import deepcopy
+from dataclasses import dataclass
 from enum import Enum
 from typing import (Any,
                     Dict,
                     List,
+                    Literal,
                     Optional,
-                    Tuple)
+                    Tuple,
+                    TypedDict,
+                    Union,
+                    cast,
+                    overload)
 
 
 class ConfigStage(Enum):
     BUILD_SDIST = 1
     BUILD_WHEEL = 2
     VALIDATE_WHEEL = 3
+    TEST_INTEGRATION = 4
+    TEST_UNIT = 5
+
+    def get_stage_name(self) -> str:
+        if self == ConfigStage.BUILD_SDIST:
+            return 'build_sdist'
+        elif self == ConfigStage.BUILD_WHEEL:
+            return 'build_wheels'
+        elif self == ConfigStage.VALIDATE_WHEEL:
+            return 'validate_wheels'
+        elif self == ConfigStage.TEST_INTEGRATION:
+            return 'test_integration'
+        elif self == ConfigStage.TEST_UNIT:
+            return 'test_unit'
+        else:
+            raise ValueError(f'Invalid config stage: {self}')
 
 
 class SdkProject(Enum):
+    Analytics = 'PYCBAC'
     Columnar = 'PYCBCC'
     Operational = 'PYCBC'
 
     @classmethod
-    def from_env(cls, env_key: Optional[str] = 'CBCI_PROJECT_TYPE') -> SdkProject:
+    def from_env(cls, env_key: Optional[str] = None) -> SdkProject:
+        if env_key is None:
+            env_key = 'CBCI_PROJECT_TYPE'
         env = get_env_variable(env_key)
+        if env.upper() in ['ANALYTICS', 'PYCBAC']:
+            return SdkProject.Analytics
         if env.upper() in ['COLUMNAR', 'PYCBCC']:
             return SdkProject.Columnar
         if env.upper() in ['OPERATIONAL', 'PYCBC']:
@@ -34,57 +62,267 @@ class SdkProject(Enum):
             print(f'Invalid SDK project: {env}')
             sys.exit(1)
 
+    @staticmethod
+    def get_default_cbdino_config(sdk_project: SdkProject) -> CbdinoConfig:
+        if sdk_project == SdkProject.Analytics:
+            return CbdinoConfig(
+                num_nodes=3,
+                version='2.0.0-1059',
+                image='ghcr.io/cb-vanilla/columnar:2.0.0-1059',
+                use_load_balancer=False,
+                use_dns=True,
+                use_dino_certs=True
+            )
+        elif sdk_project == SdkProject.Columnar:
+            return CbdinoConfig(
+                num_nodes=3,
+                version='1.2.0-1055',
+                image='ghcr.io/cb-vanilla/columnar:1.2.0-1055',
+                use_load_balancer=False,
+                use_dns=False,
+                use_dino_certs=False
+            )
+        elif sdk_project == SdkProject.Operational:
+            return CbdinoConfig(
+                num_nodes=3,
+                version='7.6.6',
+                use_load_balancer=False,
+                use_dns=False,
+                use_dino_certs=False
+            )
+        else:
+            print(f'Invalid SDK project: {sdk_project.value}')
+            sys.exit(1)
 
-# TODO: TypeDict? or maybe Dict[str, dataclass]; more config options
-DEFAULT_CONFIG = {
-    'USE_OPENSSL': {
-        'default': 'OFF',
-        'description': 'Use OpenSSL instead of boringssl',
-        'required': True,
-        'sdk_alias': 'SDKPROJECT_USE_OPENSSL'
-    },
-    'OPENSSL_VERSION': {
-        'default': None,
-        'description': 'The version of OpenSSL to use instead of boringssl',
-        'required': False,
-        'sdk_alias': 'SDKPROJECT_OPENSSL_VERSION'
-    },
-    'SET_CPM_CACHE': {
-        'default': 'ON',
-        'description': 'Initialize the C++ core CPM cache',
-        'required': False,
-        'sdk_alias': 'SDKPROJECT_SET_CPM_CACHE'
-    },
-    'USE_LIMITED_API': {
-        'default': None,
-        'description': 'Set to enable use of Py_LIMITED_API',
-        'required': False,
-        'sdk_alias': 'SDKPROJECT_LIMITED_API'
-    },
-    'VERBOSE_MAKEFILE': {
-        'default': None,
-        'description': 'Use verbose logging when configuring/building',
-        'required': False,
-        'sdk_alias': 'SDKPROJECT_VERBOSE_MAKEFILE'
-    },
-    'BUILD_TYPE': {
-        'default': 'RelWithDebInfo',
-        'description': 'Sets the build type when configuring/building',
-        'required': False,
-        'sdk_alias': 'SDKPROJECT_BUILD_TYPE'
-    },
-    'CB_CACHE_OPTION': {
-        'default': None,
-        'description': 'Sets the builds ccache option',
-        'required': False,
-        'sdk_alias': 'SDKPROJECT_CB_CACHE_OPTION'
-    },
+    @staticmethod
+    def get_test_config_keys(sdk_project: SdkProject) -> List[str]:
+        if sdk_project == SdkProject.Analytics:
+            return ['scheme', 'host', 'port', 'username', 'password', 'fqdn', 'nonprod', 'tls_verify']
+        elif sdk_project == SdkProject.Columnar:
+            return ['scheme', 'host', 'port', 'username', 'password', 'fqdn', 'nonprod', 'tls_verify']
+        elif sdk_project == SdkProject.Operational:
+            return ['scheme', 'host', 'port', 'username', 'password']
+        else:
+            print(f'Invalid SDK project: {sdk_project.value}')
+            sys.exit(1)
+
+@dataclass
+class CbdinoConfig:
+    num_nodes: int
+    version: str
+    image: Optional[str] = None
+    use_load_balancer: Optional[bool] = None
+    use_dns: Optional[bool] = None
+    use_dino_certs: Optional[bool] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        output = {
+            'num_nodes': self.num_nodes,
+            'version': self.version
+        }
+        if self.image is not None:
+            output['image'] = self.image
+        if self.use_load_balancer is not None:
+            output['use_load_balancer'] = self.use_load_balancer
+        if self.use_dns is not None:
+            output['use_dns'] = self.use_dns
+        if self.use_dino_certs is not None:
+            output['use_dino_certs'] = self.use_dino_certs
+        return output
+    
+    def to_yaml_config(self, sdk_project: SdkProject) -> str:
+        output = []
+        if sdk_project == SdkProject.Analytics:
+            output.append('columnar: true')
+        output.append('nodes:')
+        output.append(f'  - count: {self.num_nodes}')
+        output.append(f'    version: {self.version}')
+        if self.image is not None:
+            output.append('    docker:')
+            output.append(f'      image: {self.image}')
+        if sdk_project == SdkProject.Analytics:
+            output.append('docker:')
+            if self.use_load_balancer is not None:
+                use_load_balancer = 'true' if self.use_load_balancer else 'false'
+                output.append(f'  load-balancer: {use_load_balancer}')
+            if self.use_dns is not None:
+                use_dns = 'true' if self.use_dns else 'false'
+                output.append(f'  use-dns: {use_dns}')
+            if self.use_dino_certs is not None:
+                use_dino_certs = 'true' if self.use_dino_certs else 'false'
+                output.append(f'  use-dino-certs: {use_dino_certs}')
+        output.append('')
+        return '\n'.join(output)
+
+@dataclass
+class TestConfig:
+    skip_integration: bool
+    skip_cbdino: bool
+    scheme: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    fqdn: Optional[str] = None
+    nonprod: Optional[bool] = None
+    tls_verify: Optional[bool] = None
+    cbdino_config: Optional[CbdinoConfig] = None
+
+    def can_do_integration(self) -> bool:
+        return (not self.skip_integration
+                and self.scheme is not None
+                and self.host is not None
+                and self.username is not None
+                and self.password is not None)
+    
+    def to_dict(self, sdk_project: SdkProject) -> Dict[str, Any]:
+        if not self.can_do_integration():
+            return {}
+        output = {
+            f'{sdk_project.value}_SCHEME': self.scheme,
+            f'{sdk_project.value}_HOST': self.host,
+            f'{sdk_project.value}_PORT': self.port,
+            f'{sdk_project.value}_USERNAME': self.username,
+            f'{sdk_project.value}_PASSWORD': self.password,
+        }
+        if self.fqdn is not None:
+            output[f'{sdk_project.value}_FQDN'] = self.fqdn
+        if self.nonprod is not None:
+            output[f'{sdk_project.value}_NONPROD'] = 'ON' if self.nonprod else 'OFF'
+        if self.tls_verify is not None:
+            output[f'{sdk_project.value}_TLS_VERIFY'] = 'ON' if self.tls_verify else 'OFF'
+        return output
+
+    @classmethod
+    def create_from_config(cls,
+                           skip_integration: bool,
+                           skip_cbdino: bool,
+                           cbdino_config: Optional[CbdinoConfig] = None,
+                           **kwargs: str) -> TestConfig:
+        nonprod = None
+        if 'nonprod' in kwargs:
+            nonprod = bool(kwargs['nonprod'])
+        tls_verify = None
+        if 'tls_verify' in kwargs:
+            tls_verify = bool(kwargs['tls_verify'])
+        return cls(skip_integration,
+                   skip_cbdino,
+                   scheme=kwargs.get('scheme'),
+                   host=kwargs.get('host'),
+                   port=kwargs.get('port'),
+                   username=kwargs.get('username', 'Administrator'),
+                   password=kwargs.get('password', 'password'),
+                   fqdn=kwargs.get('fqdn'),
+                   nonprod=nonprod,
+                   tls_verify=tls_verify,
+                   cbdino_config=cbdino_config)
+
+
+@dataclass
+class ConfigOption:
+    name: str
+    description: str
+    required: bool = False
+    default: Optional[str] = None
+    sdk_alias: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.sdk_alias is None:
+            self.sdk_alias = f'SDKPROJECT_{self.name.upper()}'
+
+class MacosStageMatrix(TypedDict, total=False):
+    os: Optional[List[str]]
+    arch: List[str]
+    python_version: List[str]
+    exclude: Optional[List[Dict[str, str]]]
+
+class WindowsStageMatrix(TypedDict, total=False):
+    os: Optional[List[str]]
+    arch: List[str]
+    python_version: List[str]
+    exclude: Optional[List[Dict[str, str]]]
+
+class LinuxStageMatrix(TypedDict, total=False):
+    linux_type: List[str]
+    arch: List[str]
+    python_version: List[str]
+    container: Optional[List[str]]
+    os: Optional[List[str]]
+    exclude: Optional[List[Dict[str, str]]]
+
+class StageMatrix(TypedDict, total=False):
+    has_linux: bool
+    has_macos: bool
+    has_windows: bool
+    linux: Optional[LinuxStageMatrix]
+    macos: Optional[MacosStageMatrix]
+    windows: Optional[WindowsStageMatrix]
+
+class TestStageMatrix(StageMatrix, total=False):
+    skip_cbdino: bool
+    skip_integration: bool
+    test_config: Optional[TestConfig]
+    cbdino_config: Optional[CbdinoConfig]
+
+DEFAULT_CONFIG: Dict[str, ConfigOption] = {
+    'USE_OPENSSL': ConfigOption('use_openssl',
+                                'Use OpenSSL instead of boringssl', 
+                                required=True,
+                                default='OFF',
+                                sdk_alias='SDKPROJECT_USE_OPENSSL'),
+    'OPENSSL_VERSION': ConfigOption('openssl_version',
+                                    'The version of OpenSSL to use instead of boringssl',
+                                    required=False,
+                                    default=None,
+                                    sdk_alias='SDKPROJECT_OPENSSL_VERSION'),
+    'SET_CPM_CACHE': ConfigOption('set_cpm_cache', 
+                                  'Initialize the C++ core CPM cache',
+                                  required=False,
+                                  default='ON',
+                                  sdk_alias='SDKPROJECT_SET_CPM_CACHE'),
+    'USE_LIMITED_API': ConfigOption('use_limited_api',
+                                    'Set to enable use of Py_LIMITED_API',
+                                    required=False,
+                                    default=None,
+                                    sdk_alias='SDKPROJECT_LIMITED_API'),
+    'VERBOSE_MAKEFILE': ConfigOption('verbose_makefile',
+                                     'Use verbose logging when configuring/building',
+                                     required=False,
+                                     default=None,
+                                     sdk_alias='SDKPROJECT_VERBOSE_MAKEFILE'),
+    'BUILD_TYPE': ConfigOption('build_type', 
+                               'Sets the build type when configuring/building',
+                               required=False,
+                               default='RelWithDebInfo',
+                               sdk_alias='SDKPROJECT_BUILD_TYPE'),
 }
 
-STAGE_MATRIX_KEYS = ['python-versions', 'python_versions', 'arches', 'platforms']
+STAGE_MATRIX_KEYS = ['python-versions',
+                     'python_versions',
+                     'arches',
+                     'platforms',
+                     'skip_integration',
+                     'skip-integration',
+                     'test_config',
+                     'test-config',
+                     'skip_cbdino',
+                     'skip-cbdino',
+                     'cbdino_config',
+                     'cbdino-config',]
 
+@overload
+def get_env_variable(key: str) -> str:
+    ...
 
-def get_env_variable(key: str, quiet: Optional[bool] = False) -> str:
+@overload
+def get_env_variable(key: str, quiet: Literal[False]) -> str:
+    ...
+
+@overload
+def get_env_variable(key: str, quiet: Literal[True]) -> Optional[str]:
+    ...
+
+def get_env_variable(key: str, quiet: Optional[bool] = False) ->Optional[str]:
     try:
         return os.environ[key]
     except KeyError:
@@ -97,27 +335,266 @@ def get_env_variable(key: str, quiet: Optional[bool] = False) -> str:
             sys.exit(1)
     return None
 
-def build_default_config(stage: ConfigStage, project: SdkProject) -> dict:
+def get_config_boolean_as_str(config_value: str) -> str:
+    if config_value.lower() in ['true', '1', 'y', 'yes', 'on']:
+       return 'True'
+    else:
+        return 'False'
+
+def build_default_config(stage: ConfigStage, project: SdkProject) -> Dict[str, ConfigOption]:
     config = deepcopy(DEFAULT_CONFIG)
     if stage == ConfigStage.BUILD_SDIST:
-        config['SET_CPM_CACHE']['required'] = True
+        config['SET_CPM_CACHE'].required = True
     elif stage == ConfigStage.BUILD_WHEEL:
-        config['BUILD_TYPE']['required'] = True
+        config['BUILD_TYPE'].required = True
         prefer_ccache = get_env_variable('PREFER_CCACHE', quiet=True)
         if prefer_ccache:
-            config['CB_CACHE_OPTION']['required'] = True
-            config['CB_CACHE_OPTION']['default'] = 'ccache'
-            config['CCACHE_DIR'] = {'required': True, 'default': prefer_ccache, 'sdk_alias': 'CCACHE_DIR'}
+            config['CB_CACHE_OPTION'].required = True
+            config['CB_CACHE_OPTION'].default = 'ccache'
+            config['CCACHE_DIR'] = ConfigOption('ccache_dir',
+                                                'Directory for the ccache',
+                                                True,
+                                                prefer_ccache,
+                                                sdk_alias='CCACHE_DIR')
         prefer_verbose = get_env_variable('PREFER_VERBOSE_MAKEFILE', quiet=True)
         if prefer_verbose:
-            config['VERBOSE_MAKEFILE']['required'] = True
-            config['VERBOSE_MAKEFILE']['default'] = 'ON'
+            config['VERBOSE_MAKEFILE'].required = True
+            config['VERBOSE_MAKEFILE'].default = 'ON'
 
     for v in config.values():
-        v['sdk_alias'] = v['sdk_alias'].replace('SDKPROJECT', project.value)
+        if v.sdk_alias:
+            v.sdk_alias = v.sdk_alias.replace('SDKPROJECT', project.value)
 
     return config
 
+def build_pytest_ini(pyproject_path: str, output_path: str) -> None:
+    import tomli  # type: ignore[import-not-found]
+    pyproject_data = None
+    try:
+        with open(pyproject_path, 'rb') as f:
+            pyproject_data = tomli.load(f)
+    except tomli.TOMLDecodeError as e:
+        print(f"Error: Failed to parse pyproject.toml at '{pyproject_path}'. Invalid TOML format: {e}")
+        return
+
+    if pyproject_data is None:
+        print(f"Error: Failed to read pyproject.toml at '{pyproject_path}'.")
+        return
+
+    valid_pytest_config = (
+        'tool' in pyproject_data
+        and 'pytest' in pyproject_data['tool']
+        and 'ini_options' in pyproject_data['tool']['pytest']
+        and isinstance(pyproject_data['tool']['pytest']['ini_options'], dict)
+    )
+
+    if not valid_pytest_config:
+        print("No pytest configuration found in pyproject.toml under 'tool.pytest.ini_options'.")
+        return
+
+    sdk_project = SdkProject.from_env()
+    pytest_data = pyproject_data['tool']['pytest']['ini_options']
+
+    output = [
+        '[pytest]',
+        f'minversion = {pytest_data.get("minversion")}',
+        'testpaths =',
+    ]
+
+    for test in pytest_data.get('testpaths'):
+        if sdk_project == SdkProject.Analytics:
+            if test.startswith('acouchbase_analytics'):
+                output.append(f'    {test.replace("acouchbase_analytics", "acb")}')
+            elif test.startswith('couchbase_analytics'):
+                output.append(f'    {test.replace("couchbase_analytics", "cb")}')
+            else:
+                output.append(f'    {test}')
+        elif sdk_project == SdkProject.Columnar:
+            if test.startswith('acouchbase_columnar'):
+                output.append(f'    {test.replace("acouchbase_columnar", "acb")}')
+            elif test.startswith('couchbase_columnar'):
+                output.append(f'    {test.replace("couchbase_columnar", "cb")}')
+            else:
+                output.append(f'    {test}')
+        elif sdk_project == SdkProject.Operational:
+            if test.startswith('acouchbase'):
+                output.append(f'    {test.replace("acouchbase", "acb")}')
+            elif test.startswith('couchbase'):
+                output.append(f'    {test.replace("couchbase", "cb")}')
+            elif test.startswith('txcouchbase'):
+                output.append(f'    {test.replace("txcouchbase", "txcb")}')
+            else:
+                output.append(f'    {test}')
+
+    keys = ['python_classes', 'python_files', 'markers']
+    for k in keys:
+        if isinstance(pytest_data[k], list):
+            if len(pytest_data[k]) > 1:
+                output.append(f'{k} =')
+                output.append('\n'.join(f'    {p}' for p in pytest_data[k]))
+            else:
+                output.append(f'{k} = {pytest_data[k][0]}')
+        else:
+            output.append(f'{k} = {pytest_data[k]}')
+    output.append('')
+
+    with open(os.path.join(output_path, 'pytest.ini'), 'w') as outfile:
+        outfile.write('\n'.join(output))
+
+def get_analytics_test_init_output(test_config: TestConfig) -> str:
+    scheme = os.environ.get('PYCBAC_SCHEME', test_config.scheme or 'https')
+    host = os.environ.get('PYCBAC_HOST', test_config.host or '127.0.0.1')
+    port = os.environ.get('PYCBAC_PORT', test_config.port or '18095')
+    username = os.environ.get('PYCBAC_USERNAME', test_config.username or 'Administrator')
+    password = os.environ.get('PYCBAC_PASSWORD', test_config.password or 'password')
+    fqdn = os.environ.get('PYCBAC_FQDN', test_config.fqdn)
+    if test_config.nonprod is not None:
+        nonprod = 'ON' if test_config.nonprod else 'OFF'
+    else:
+        nonprod = os.environ.get('PYCBAC_NONPROD', 'OFF')
+    if test_config.tls_verify is not None:
+        tls_verify = 'ON' if test_config.tls_verify else 'OFF'
+    else:
+        tls_verify = os.environ.get('PYCBAC_TLS_VERIFY', 'ON')
+
+    output = [
+        '[analytics]',
+        f'scheme = {scheme}',
+        f'host = {host}',
+        f'port = {port}',
+        f'username = {username}',
+        f'password = {password}',
+        f'nonprod = {get_config_boolean_as_str(nonprod)}',
+        f'tls_verify = {get_config_boolean_as_str(tls_verify)}'
+    ]
+    if fqdn is not None:
+        output.append(f'fqdn = {fqdn}')
+    output.append('')
+
+    return '\n'.join(output)
+
+
+def get_columnar_test_init_output() -> str:
+    scheme = os.environ.get('PYCBCC_SCHEME', 'couchbases')
+    host = os.environ.get('PYCBCC_HOST', 'localhost')
+    port = os.environ.get('PYCBCC_PORT', '8091')
+    username = os.environ.get('PYCBCC_USERNAME', 'Administrator')
+    password = os.environ.get('PYCBCC_PASSWORD', 'password')
+    fqdn = os.environ.get('PYCBCC_FQDN', None)
+    nonprod = os.environ.get('PYCBCC_NONPROD', 'on')
+    tls_verify = os.environ.get('PYCBCC_TLS_VERIFY', 'on')
+
+    output = [
+        '[columnar]',
+        f'scheme = {scheme}',
+        f'host = {host}',
+        f'port = {port}',
+        f'username = {username}',
+        f'password = {password}',
+        f'nonprod = {get_config_boolean_as_str(nonprod)}',
+        f'tls_verify = {get_config_boolean_as_str(tls_verify)}'
+    ]
+    if fqdn is not None:
+        output.append(f'fqdn = {fqdn}')
+    output.append('')
+
+    return '\n'.join(output)
+
+def get_operational_test_init_output() -> str:
+    host = os.environ.get('PYCBC_HOST', '127.0.0.1')
+    port = os.environ.get('PYCBC_PORT', '8091')
+    username = os.environ.get('PYCBC_USERNAME', 'Administrator')
+    password = os.environ.get('PYCBC_PASSWORD', 'password')
+    bucket_name = os.environ.get('PYCBC_BUCKET_NAME', 'default')
+
+    output = [
+        '[realserver]',
+        'enabled = True'
+        f'host = {host}',
+        f'port = {port}',
+        f'username = {username}',
+        f'password = {password}',
+        f'bucket_name = {bucket_name}',
+        '',
+        '[gocaves]',
+        'enabled = False',
+    ]
+    output.append('')
+
+    return '\n'.join(output)
+
+def build_test_ini(output_path: str) -> None:
+    sdk_project = SdkProject.from_env()
+    user_config = user_config_as_json('CBCI_CONFIG')
+    test_config = parse_user_test_config(user_config)
+    output = None
+    if sdk_project == SdkProject.Analytics:
+        output = get_analytics_test_init_output(test_config)
+    if sdk_project == SdkProject.Columnar:
+        output = get_columnar_test_init_output()
+    elif sdk_project == SdkProject.Operational:
+        output = get_operational_test_init_output()
+
+    if output is None:
+        print('Unable to build test config.')
+        sys.exit(1)
+
+    with open(os.path.join(output_path, 'test_config.ini'), 'w') as outfile:
+        outfile.write(output)
+
+def build_dev_requirements(output_path: str) -> None:
+    sdk_project = SdkProject.from_env()
+    req_file = None
+    reqs = []
+    if sdk_project == SdkProject.Analytics:
+        req_file = 'requirements-dev.in'
+        reqs = ['aiohttp', 'pytest']
+    if sdk_project == SdkProject.Columnar:
+        req_file = 'dev_requirements.txt'
+        reqs = ['pytest', 'pytest-asyncio', 'pytest-rerunfailures', 'requests']
+    elif sdk_project == SdkProject.Operational:
+        req_file = 'dev_requirements.txt'
+        reqs = ['pytest', 'pytest-asyncio', 'pytest-rerunfailures', 'requests', 'Faker', 'faker-vehicle', 'Twisted']
+
+    if req_file is None:
+        print('Unable to find dev requirements file.')
+        sys.exit(1)
+
+    if not os.path.exists(req_file):
+        print(f'Requirements file {req_file} does not exist.')
+        sys.exit(1)
+
+    final_reqs = []
+    with open(req_file, 'r') as infile:
+        lines = [l.strip() for l in infile.readlines() if l and not l.startswith('#')]
+
+    separators = ['=', '~', '>', '<', '!=']
+    pattern = '|'.join(map(re.escape, separators)) 
+
+    for req in reqs:
+        for line in lines:
+            tokens = re.split(pattern, line)
+            # handle "nested" cases like pytest and pytest-asyncio
+            match = (not ('-' not in req and '-' in tokens[0]) and tokens[0].startswith(req))
+            if match:
+                final_reqs.append(line)
+
+    if not reqs:
+        final_reqs = lines
+    final_reqs.append('')
+
+    with open(os.path.join(output_path, 'requirements-test.txt'), 'w') as outfile:
+        outfile.write('\n'.join(final_reqs))
+
+def build_cbdino_config_yaml(output_path: str) -> None:
+    user_config = user_config_as_json('CBCI_CONFIG')
+    test_config = parse_user_test_config(user_config)
+    if test_config.skip_cbdino or test_config.cbdino_config is None:
+        return
+    
+    sdk_project = SdkProject.from_env()
+    with open(os.path.join(output_path, 'cluster_def.yaml'), 'w') as outfile:
+        outfile.write(test_config.cbdino_config.to_yaml_config(sdk_project))
 
 def user_config_as_json(config_key: str) -> Dict[str, Any]:
     config_str = get_env_variable(config_key, quiet=True)
@@ -246,30 +723,30 @@ def set_os_and_arch(user_platforms: str,
 def build_linux_stage_matrix(python_versions: List[str],
                              x86_64_platforms: List[str],
                              arm64_platforms: List[str],
-                             stage: ConfigStage) -> Dict[str, Any]:
-    linux_matrix = {}
-    if stage == ConfigStage.BUILD_WHEEL:
+                             stage: ConfigStage) -> LinuxStageMatrix:
+    linux_matrix: LinuxStageMatrix = {}
+    if stage in [ConfigStage.BUILD_WHEEL, ConfigStage.TEST_UNIT, ConfigStage.TEST_INTEGRATION]:
         if 'linux' in x86_64_platforms:
-            linux_matrix['linux-type'] = ['manylinux']
+            linux_matrix['linux_type'] = ['manylinux']
             linux_matrix['arch'] = ['x86_64']
         if 'linux' in arm64_platforms:
-            if 'linux-type' not in linux_matrix:
-                linux_matrix['linux-type'] = ['manylinux']
+            if 'linux_type' not in linux_matrix:
+                linux_matrix['linux_type'] = ['manylinux']
             if 'arch' not in linux_matrix:
                 linux_matrix['arch'] = ['aarch64']
             else:
                 linux_matrix['arch'].append('aarch64')
         if 'alpine' in x86_64_platforms:
-            if 'linux-type' not in linux_matrix:
-                linux_matrix['linux-type'] = ['musllinux']
+            if 'linux_type' not in linux_matrix:
+                linux_matrix['linux_type'] = ['musllinux']
             else:
-                linux_matrix['linux-type'].append('musllinux')
+                linux_matrix['linux_type'].append('musllinux')
             if 'arch' not in linux_matrix:
                 linux_matrix['arch'] = ['x86_64']
 
         if linux_matrix:
-            linux_matrix['python-version'] = python_versions
-            if 'aarch64' in linux_matrix['arch'] and 'musllinux' in linux_matrix['linux-type']:
+            linux_matrix['python_version'] = python_versions
+            if 'aarch64' in linux_matrix['arch'] and 'musllinux' in linux_matrix['linux_type']:
                 linux_matrix['exclude'] = [{'linux-type': 'musllinux', 'arch': 'aarch64'}]
     elif stage == ConfigStage.VALIDATE_WHEEL:
         if 'linux' in x86_64_platforms:
@@ -286,7 +763,7 @@ def build_linux_stage_matrix(python_versions: List[str],
                 linux_matrix['arch'].append('aarch64')
         if 'alpine' in x86_64_platforms:
             alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
-            if 'container' not in linux_matrix:
+            if 'container' not in linux_matrix or linux_matrix['container'] is None:
                 linux_matrix['container'] = [alpine_container]
             else:
                 linux_matrix['container'].append(alpine_container)
@@ -296,8 +773,10 @@ def build_linux_stage_matrix(python_versions: List[str],
         if linux_matrix:
             default_linux_plat = get_env_variable('CBCI_DEFAULT_LINUX_PLATFORM')
             linux_matrix['os'] = [default_linux_plat]
-            linux_matrix['python-version'] = python_versions
-            if 'aarch64' in linux_matrix['arch'] and 'container' in linux_matrix:
+            linux_matrix['python_version'] = python_versions
+            if ('aarch64' in linux_matrix['arch']
+                and 'container' in linux_matrix
+                and linux_matrix['container'] is not None):
                 alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
                 if alpine_container in linux_matrix['container']:
                     linux_matrix['exclude'] = [{'container': alpine_container, 'arch': 'aarch64'}]
@@ -308,16 +787,16 @@ def build_linux_stage_matrix(python_versions: List[str],
 def build_macos_stage_matrix(python_versions: List[str],
                              x86_64_platforms: List[str],
                              arm64_platforms: List[str],
-                             stage: ConfigStage) -> Dict[str, Any]:
-    macos_matrix = {}
-    if stage == ConfigStage.BUILD_WHEEL:
+                             stage: ConfigStage) -> MacosStageMatrix:
+    macos_matrix: MacosStageMatrix = {}
+    if stage in [ConfigStage.BUILD_WHEEL, ConfigStage.TEST_UNIT, ConfigStage.TEST_INTEGRATION]:
         if 'macos' in x86_64_platforms:
             macos_plat = get_env_variable('CBCI_DEFAULT_MACOS_X86_64_PLATFORM')
             macos_matrix['os'] = [macos_plat]
             macos_matrix['arch'] = ['x86_64']
         if 'macos' in arm64_platforms:
             macos_plat = get_env_variable('CBCI_DEFAULT_MACOS_ARM64_PLATFORM')
-            if 'os' not in macos_matrix:
+            if 'os' not in macos_matrix or macos_matrix['os'] is None:
                 macos_matrix['os'] = [macos_plat]
             else:
                 macos_matrix['os'].append(macos_plat)
@@ -327,7 +806,7 @@ def build_macos_stage_matrix(python_versions: List[str],
                 macos_matrix['arch'].append('arm64')
 
         if macos_matrix:
-            macos_matrix['python-version'] = python_versions
+            macos_matrix['python_version'] = python_versions
             if 'arm64' in macos_matrix['arch'] and 'x86_64' in macos_matrix['arch']:
                 macos_x86_64_plat = get_env_variable('CBCI_DEFAULT_MACOS_X86_64_PLATFORM')
                 macos_arm64_plat = get_env_variable('CBCI_DEFAULT_MACOS_ARM64_PLATFORM')
@@ -339,12 +818,12 @@ def build_macos_stage_matrix(python_versions: List[str],
             macos_matrix['os'] = [macos_plat]
         if 'macos' in arm64_platforms:
             macos_plat = get_env_variable('CBCI_DEFAULT_MACOS_ARM64_PLATFORM')
-            if 'os' not in macos_matrix:
+            if 'os' not in macos_matrix or macos_matrix['os'] is None:
                 macos_matrix['os'] = [macos_plat]
             else:
                 macos_matrix['os'].append(macos_plat)
         if macos_matrix:
-            macos_matrix['python-version'] = python_versions
+            macos_matrix['python_version'] = python_versions
 
     return macos_matrix
 
@@ -352,51 +831,143 @@ def build_macos_stage_matrix(python_versions: List[str],
 def build_windows_stage_matrix(python_versions: List[str],
                                x86_64_platforms: List[str],
                                arm64_platforms: List[str],
-                               stage: ConfigStage) -> Dict[str, Any]:
-    windows_matrix = {}
-    if stage == ConfigStage.BUILD_WHEEL or stage == ConfigStage.VALIDATE_WHEEL:
+                               stage: ConfigStage) -> WindowsStageMatrix:
+    windows_matrix: WindowsStageMatrix = {}
+    if stage in [ConfigStage.BUILD_WHEEL, ConfigStage.VALIDATE_WHEEL, ConfigStage.TEST_UNIT, ConfigStage.TEST_INTEGRATION]:
         if 'windows' in x86_64_platforms:
             windows_plat = get_env_variable('CBCI_DEFAULT_WINDOWS_PLATFORM')
             windows_matrix['os'] = [windows_plat]
             windows_matrix['arch'] = ['AMD64']
 
         if windows_matrix:
-            windows_matrix['python-version'] = python_versions
+            windows_matrix['python_version'] = python_versions
 
     return windows_matrix
 
 
 def build_stage_matrices(python_versions: List[str],
                          x86_64_platforms: List[str],
-                         arm64_platforms: List[str]) -> Dict[str, Any]:
-    matrices = {}
-    for stage in [ConfigStage.BUILD_WHEEL, ConfigStage.VALIDATE_WHEEL]:
-        stage_matrices = {}
+                         arm64_platforms: List[str],
+                         test_config: TestConfig) -> Dict[str, Union[StageMatrix, TestStageMatrix]]:
+    matrices: Dict[str, StageMatrix] = {}
+    sdk_project = SdkProject.from_env()
+    if sdk_project == SdkProject.Analytics:
+        stages = [ConfigStage.TEST_UNIT, ConfigStage.TEST_INTEGRATION]
+    else:
+        stages = [ConfigStage.BUILD_WHEEL, ConfigStage.VALIDATE_WHEEL, ConfigStage.TEST_UNIT, ConfigStage.TEST_INTEGRATION]
+    for stage in stages:
+        stage_matrix: StageMatrix = {}
+            
         linux_matrix = build_linux_stage_matrix(python_versions, x86_64_platforms, arm64_platforms, stage)
         if linux_matrix:
-            stage_matrices['linux'] = linux_matrix
-            stage_matrices['has_linux'] = True
+            stage_matrix['linux'] = linux_matrix
+            stage_matrix['has_linux'] = True
         else:
-            stage_matrices['has_linux'] = False
+            stage_matrix['has_linux'] = False
         macos_matrix = build_macos_stage_matrix(python_versions, x86_64_platforms, arm64_platforms, stage)
         if macos_matrix:
-            stage_matrices['macos'] = macos_matrix
-            stage_matrices['has_macos'] = True
+            stage_matrix['macos'] = macos_matrix
+            stage_matrix['has_macos'] = True
         else:
-            stage_matrices['has_macos'] = False
+            stage_matrix['has_macos'] = False
         windows_matrix = build_windows_stage_matrix(python_versions, x86_64_platforms, arm64_platforms, stage)
         if windows_matrix:
-            stage_matrices['windows'] = windows_matrix
-            stage_matrices['has_windows'] = True
+            stage_matrix['windows'] = windows_matrix
+            stage_matrix['has_windows'] = True
         else:
-            stage_matrices['has_windows'] = False
-        stage_name = 'build_wheels' if stage == ConfigStage.BUILD_WHEEL else 'validate_wheels'
-        matrices[stage_name] = stage_matrices
+            stage_matrix['has_windows'] = False
+
+        stage_name = stage.get_stage_name()
+        if stage == ConfigStage.TEST_INTEGRATION:
+            test_matrix: TestStageMatrix = cast(TestStageMatrix, deepcopy(stage_matrix))
+            test_matrix['skip_cbdino'] = test_config.skip_cbdino
+            test_matrix['skip_integration'] = test_config.skip_integration
+            if test_config.skip_cbdino is False:
+                if test_config.cbdino_config is not None:
+                    test_matrix['cbdino_config'] = test_config.cbdino_config
+                else:
+                    test_config.skip_cbdino = True
+                    test_matrix['skip_cbdino'] = test_config.skip_cbdino
+            if test_config.skip_integration is False:
+                if not test_config.can_do_integration():
+                    test_config.skip_integration = True
+                    test_matrix['skip_integration'] = test_config.skip_integration
+                else:
+                    test_matrix['test_config'] = test_config
+            matrices[stage_name] = test_matrix
+        else:
+            matrices[stage_name] = stage_matrix
 
     return matrices
 
+def build_cbdino_config(sdk_project: SdkProject, cbdino_cfg: Optional[Dict[str, Any]] = None) -> CbdinoConfig:
+    cbdino_config: Optional[CbdinoConfig] = None
+    default_cbdino_cfg = SdkProject.get_default_cbdino_config(sdk_project)
+    if cbdino_cfg:
+        cbdino_config = CbdinoConfig(
+            num_nodes=cbdino_cfg.get('num_nodes', default_cbdino_cfg.num_nodes),
+            version=cbdino_cfg.get('version', default_cbdino_cfg.version),
+            image=cbdino_cfg.get('image', default_cbdino_cfg.image),
+            use_load_balancer=cbdino_cfg.get('use_load_balancer', default_cbdino_cfg.use_load_balancer),
+            use_dns=cbdino_cfg.get('use_dns', default_cbdino_cfg.use_dns),
+            use_dino_certs=cbdino_cfg.get('use_dino_certs', default_cbdino_cfg.use_dino_certs)
+        )
+    else:
+        cbdino_config = default_cbdino_cfg
 
-def parse_user_config(config_key: str, quiet: Optional[bool]=True) -> Dict[str, List[str]]:
+    return cbdino_config
+
+def parse_user_test_config(cfg: Dict[str, Any]) -> TestConfig:
+    sdk_project = SdkProject.from_env()
+    cbdino_config: Optional[CbdinoConfig] = None
+    skip_cbdino = False
+    # check if set via CBCI_SKIP_CBDINO
+    skip_cbdino_env = get_env_variable('CBCI_SKIP_CBDINO', quiet=True)
+    if skip_cbdino_env is not None:
+        skip_cbdino = bool(get_config_boolean_as_str(skip_cbdino_env))
+    # user config has final say
+    if 'skip_cbdino' in cfg:
+        skip_cbdino = bool(cfg['skip_cbdino'])
+    elif 'skip-cbdino' in cfg:
+        skip_cbdino = bool(cfg['skip-cbdino'])
+    if skip_cbdino is False:
+        cbd_cfg = cfg.get('cbdino_config', cfg.get('cbdino-config', None))
+        cbdino_config = build_cbdino_config(sdk_project, cbd_cfg)
+
+    skip_integration = False
+    # check if set via CBCI_SKIP_INTEGRATION
+    skip_integration_env = get_env_variable('CBCI_SKIP_INTEGRATION', quiet=True)
+    if skip_integration_env is not None:
+        skip_integration = bool(get_config_boolean_as_str(skip_integration_env))
+    # user config has final say
+    if 'skip_integration' in cfg:
+        skip_integration = bool(cfg['skip_integration'])
+    elif 'skip-integration' in cfg:
+        skip_integration = bool(cfg['skip-integration'])
+
+    if skip_integration is True:
+        return TestConfig(skip_cbdino, skip_integration, cbdino_config=cbdino_config)
+    
+    test_cfg = cfg.get('test_config', cfg.get('test-config', None))
+    if not isinstance(test_cfg, dict):
+        return TestConfig(True, skip_cbdino, cbdino_config=cbdino_config)
+    
+    config_keys = SdkProject.get_test_config_keys(sdk_project)
+    test_config: Dict[str, str] = {}
+    for k, v in test_cfg.items():
+        if k not in config_keys:
+            continue
+        if k in ['nonprod', 'tls_verify']:
+            test_config[k] = get_config_boolean_as_str(v)
+        else:
+            test_config[k] = v
+
+    return TestConfig.create_from_config(skip_integration,
+                                         skip_cbdino,
+                                         cbdino_config=cbdino_config,
+                                         **test_config)
+
+def parse_user_config(config_key: str, quiet: Optional[bool]=True) -> Tuple[Dict[str, List[str]], TestConfig]:
     user_config = user_config_as_json(config_key)
     cfg = {}
     versions = set_python_versions(user_config.get('python_versions',
@@ -412,13 +983,60 @@ def parse_user_config(config_key: str, quiet: Optional[bool]=True) -> Dict[str, 
     x86_64_platforms, arm64_platforms = set_os_and_arch(user_platforms, user_arches, quiet=quiet)
     cfg['x86_64_platforms'] = x86_64_platforms
     cfg['arm64_platforms'] = arm64_platforms
-    return cfg
+    test_config = parse_user_test_config(user_config)
+    return cfg, test_config
 
+
+def stage_matrix_as_dict(stage: str, stage_matrix: Union[StageMatrix, TestStageMatrix]) -> Dict[str, Any]:
+    
+    matrix_dict: Dict[str, Any] = {}
+    if 'linux' in stage_matrix and stage_matrix['linux'] is not None:
+        matrix_dict['linux'] = {}
+        for k, v in stage_matrix['linux'].items():
+            if k == 'linux_type':
+                matrix_dict['linux']['linux-type'] = v
+            elif k == 'python_version':
+                matrix_dict['linux']['python-version'] = v
+            else:
+                matrix_dict['linux'][k] = v
+    if 'macos' in stage_matrix and stage_matrix['macos'] is not None:
+        matrix_dict['macos'] = {}
+        for k, v in stage_matrix['macos'].items():
+            if k == 'python_version':
+                matrix_dict['macos']['python-version'] = v
+            else:
+                matrix_dict['macos'][k] = v
+    if 'windows' in stage_matrix and stage_matrix['windows'] is not None:
+        matrix_dict['windows'] = {}
+        for k, v in stage_matrix['windows'].items():
+            if k == 'python_version':
+                matrix_dict['windows']['python-version'] = v
+            else:
+                matrix_dict['windows'][k] = v
+    matrix_dict['has_linux'] = stage_matrix.get('has_linux', False)
+    matrix_dict['has_macos'] = stage_matrix.get('has_macos', False)
+    matrix_dict['has_windows'] = stage_matrix.get('has_windows', False)
+    if stage == 'test_integration':
+        sdk_project = SdkProject.from_env()
+        test_matrix = cast(TestStageMatrix, stage_matrix)
+        matrix_dict['skip_cbdino'] = test_matrix.get('skip_cbdino', False)
+        matrix_dict['skip_integration'] = test_matrix.get('skip_integration', False)
+        cbdino_cfg = test_matrix.get('cbdino_config', None)
+        if cbdino_cfg is not None:
+            matrix_dict['cbdino_config'] = cbdino_cfg.to_dict()
+        test_config = test_matrix.get('test_config', None)
+        if test_config is not None:
+            matrix_dict['test_config'] = test_config.to_dict(sdk_project)
+    return matrix_dict
 
 def get_stage_matrices(config_key: str, quiet: Optional[bool]=True) -> None:
-    config = parse_user_config(config_key, quiet=quiet)
-    matrices = build_stage_matrices(config['python_versions'], config['x86_64_platforms'], config['arm64_platforms'])
-    print(f'{json.dumps(matrices)}')
+    config, test_config = parse_user_config(config_key, quiet=quiet)
+    matrices = build_stage_matrices(config['python_versions'],
+                                    config['x86_64_platforms'],
+                                    config['arm64_platforms'],
+                                    test_config)
+    gha_matrices = {k: stage_matrix_as_dict(k, v) for k, v in matrices.items()}
+    print(f'{json.dumps(gha_matrices)}')
 
 
 def parse_config(config_stage: ConfigStage, config_key: str) -> None:
@@ -439,13 +1057,14 @@ def parse_config(config_stage: ConfigStage, config_key: str) -> None:
             cfg[key] = value
 
     # handle defaults
-    required_defaults = [k for k, v in default_cfg.items() if v['required'] is True]
+    required_defaults = [k for k, v in default_cfg.items() if v.required is True]
     for k in required_defaults:
-        if k not in cfg and default_cfg[k]['default'] is not None:
-            cfg[k] = default_cfg[k]['default']
+        if k not in cfg:
+            if (default := default_cfg[k].default) is not None:
+                cfg[k] = default
 
     # print(f'{json.dumps({default_cfg[k]["sdk_alias"]:v for k, v in cfg.items()})}')
-    print(' '.join([f'{default_cfg[k]["sdk_alias"]}={v}' for k, v in cfg.items()]))
+    print(' '.join([f'{default_cfg[k].sdk_alias}={v}' for k, v in cfg.items()]))
 
 
 def parse_wheel_name(wheelname: str, project_name: str) -> None:
@@ -472,6 +1091,17 @@ if __name__ == '__main__':
         parse_config(ConfigStage.BUILD_WHEEL, sys.argv[2])
     elif cmd == 'parse_wheel_name':
         parse_wheel_name(sys.argv[2], sys.argv[3])
+    elif cmd == 'build_test_ini':
+        build_test_ini(sys.argv[2])
+    elif cmd == 'build_dev_requirements':
+        build_dev_requirements(sys.argv[2])
+    elif cmd == 'build_pytest_ini':
+        if len(sys.argv) < 4:
+            print('Expected pyproject path and output path.')
+            sys.exit(1)
+        build_pytest_ini(sys.argv[2], sys.argv[3])
+    elif cmd == 'build_cbdino_config_yaml':
+        build_cbdino_config_yaml(sys.argv[2])
     else:
         print(f'Invalid command: {cmd}')
         sys.exit(1)
