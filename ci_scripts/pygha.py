@@ -1048,18 +1048,30 @@ def parse_user_config(config_key: str, quiet: Optional[bool]=True) -> Tuple[Dict
     test_config = parse_user_test_config(user_config)
     return cfg, test_config
 
-def add_test_config_to_stage_matrix(matrix_dict: Dict[str, Any],
-                                    test_matrix: TestStageMatrix,
-                                    sdk_project: SdkProject) -> None:
-    if 'has_linux' in matrix_dict and matrix_dict['has_linux'] is True:
-        matrix_dict['linux']['api'] = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
-        matrix_dict['linux']['install_type'] = test_matrix.get('install_type', ['sdist', 'wheel'])
-    if 'has_macos' in matrix_dict and matrix_dict['has_macos'] is True:
-        matrix_dict['macos']['api'] = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
-        matrix_dict['macos']['install_type'] = test_matrix.get('install_type', ['sdist', 'wheel'])
-    if 'has_windows' in matrix_dict and matrix_dict['has_windows'] is True:
-        matrix_dict['windows']['api'] = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
-        matrix_dict['windows']['install_type'] = test_matrix.get('install_type', ['sdist', 'wheel'])
+# TODO: this is a possibility, but the matrix b/c rather large (>= 60)
+# def add_test_config_to_stage_matrix(matrix_dict: Dict[str, Any],
+#                                     test_matrix: TestStageMatrix,
+#                                     sdk_project: SdkProject) -> None:
+#     if 'has_linux' in matrix_dict and matrix_dict['has_linux'] is True:
+#         matrix_dict['linux']['api'] = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
+#         matrix_dict['linux']['install_type'] = test_matrix.get('install_type', ['sdist', 'wheel'])
+#     if 'has_macos' in matrix_dict and matrix_dict['has_macos'] is True:
+#         matrix_dict['macos']['api'] = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
+#         matrix_dict['macos']['install_type'] = test_matrix.get('install_type', ['sdist', 'wheel'])
+#     if 'has_windows' in matrix_dict and matrix_dict['has_windows'] is True:
+#         matrix_dict['windows']['api'] = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
+#         matrix_dict['windows']['install_type'] = test_matrix.get('install_type', ['sdist', 'wheel'])
+
+def add_apis_and_install_type_to_stage_matrix(matrix_dict: Dict[str, Any],
+                                              test_matrix: TestStageMatrix,
+                                              sdk_project: SdkProject) -> None:
+    apis = test_matrix.get('api', SdkProject.get_default_apis(sdk_project))
+    matrix_dict['test_acouchbase_api'] = True if 'acouchbase' in apis else False
+    matrix_dict['test_couchbase_api'] = True if 'couchbase' in apis else False
+    matrix_dict['test_txcouchbase_api'] = True if 'txcouchbase' in apis else False
+    install_types = test_matrix.get('install_type', ['sdist', 'wheel'])
+    matrix_dict['test_sdist_install'] = True if 'sdist' in install_types else False
+    matrix_dict['test_wheel_install'] = True if 'wheel' in install_types else False
 
 def stage_matrix_as_dict(stage: str, stage_matrix: Union[StageMatrix, TestStageMatrix]) -> Dict[str, Any]:
     matrix_dict: Dict[str, Any] = {}
@@ -1092,13 +1104,15 @@ def stage_matrix_as_dict(stage: str, stage_matrix: Union[StageMatrix, TestStageM
     if stage == 'test_unit':
         sdk_project = SdkProject.from_env()
         test_matrix = cast(TestStageMatrix, stage_matrix)
-        add_test_config_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
+        # add_test_config_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
+        add_apis_and_install_type_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
     elif stage == 'test_integration':
         sdk_project = SdkProject.from_env()
         test_matrix = cast(TestStageMatrix, stage_matrix)
         matrix_dict['skip_cbdino'] = test_matrix.get('skip_cbdino', False)
         matrix_dict['skip_integration'] = test_matrix.get('skip_integration', False)
-        add_test_config_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
+        # add_test_config_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
+        add_apis_and_install_type_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
         cbdino_cfg = test_matrix.get('cbdino_config', None)
         if cbdino_cfg is not None:
             matrix_dict['cbdino_config'] = cbdino_cfg.to_dict()
