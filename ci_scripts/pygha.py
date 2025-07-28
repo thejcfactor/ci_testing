@@ -279,11 +279,13 @@ class StageMatrix(TypedDict, total=False):
 
 class TestStageMatrix(StageMatrix, total=False):
     skip_cbdino: bool
+    has_linux_cbdino: bool
     skip_integration: bool
     api: List[str]
     install_type: List[str]
     test_config: Optional[TestConfig]
     cbdino_config: Optional[CbdinoConfig]
+    linux_cbdino: Optional[LinuxStageMatrix]
 
 DEFAULT_CONFIG: Dict[str, ConfigOption] = {
     'USE_OPENSSL': ConfigOption('use_openssl',
@@ -865,6 +867,24 @@ def build_windows_stage_matrix(python_versions: List[str],
 
     return windows_matrix
 
+def build_cbdino_stage_matrix_portion(test_matrix: TestStageMatrix, test_config: TestConfig) -> None:
+    if test_config.cbdino_config is not None:
+        test_matrix['cbdino_config'] = test_config.cbdino_config
+        linux_cfg = test_matrix.get('linux', {})
+        if linux_cfg:
+            linux_cbdino = deepcopy(linux_cfg)
+            linux_cbdino.pop('linux_type', [])
+            linux_cbdino.pop('exclude', None)
+            linux_cbdino['os'] = ['ubuntu-latest']
+            linux_cbdino['arch'] = ['x86_64']
+            test_matrix['linux_cbdino'] = linux_cbdino
+            test_matrix['has_linux_cbdino'] = True
+        else:
+            test_matrix['has_linux_cbdino'] = False
+    else:
+        test_config.skip_cbdino = True
+        test_matrix['skip_cbdino'] = test_config.skip_cbdino
+        test_matrix['has_linux_cbdino'] = False
 
 def build_stage_matrices(python_versions: List[str],
                          x86_64_platforms: List[str],
@@ -911,11 +931,7 @@ def build_stage_matrices(python_versions: List[str],
             int_test_matrix['api'] = test_config.apis
             int_test_matrix['install_type'] = test_config.install_types
             if test_config.skip_cbdino is False:
-                if test_config.cbdino_config is not None:
-                    int_test_matrix['cbdino_config'] = test_config.cbdino_config
-                else:
-                    test_config.skip_cbdino = True
-                    int_test_matrix['skip_cbdino'] = test_config.skip_cbdino
+                build_cbdino_stage_matrix_portion(int_test_matrix, test_config)
             if test_config.skip_integration is False:
                 if not test_config.can_do_integration():
                     test_config.skip_integration = True
@@ -1048,7 +1064,7 @@ def parse_user_config(config_key: str, quiet: Optional[bool]=True) -> Tuple[Dict
     test_config = parse_user_test_config(user_config)
     return cfg, test_config
 
-# TODO: this is a possibility, but the matrix b/c rather large (>= 60)
+# TODO: this is a possibility, but the matrix becomes rather large (>= 60)
 # def add_test_config_to_stage_matrix(matrix_dict: Dict[str, Any],
 #                                     test_matrix: TestStageMatrix,
 #                                     sdk_project: SdkProject) -> None:
@@ -1072,6 +1088,18 @@ def add_apis_and_install_type_to_stage_matrix(matrix_dict: Dict[str, Any],
     install_types = test_matrix.get('install_type', ['sdist', 'wheel'])
     matrix_dict['test_sdist_install'] = True if 'sdist' in install_types else False
     matrix_dict['test_wheel_install'] = True if 'wheel' in install_types else False
+
+def add_cbdino_config_to_stage_matrix(matrix_dict: Dict[str, Any], test_matrix: TestStageMatrix,) -> None:
+    cbdino_cfg = test_matrix.get('cbdino_config', None)
+    if cbdino_cfg is None:
+        return
+    matrix_dict['cbdino_config'] = cbdino_cfg.to_dict()
+    if 'linux_cbdino' in test_matrix:
+        linux_cbdino = test_matrix['linux_cbdino']
+        if linux_cbdino is not None:
+            matrix_dict['linux_cbdino'] = {'os': linux_cbdino.get('os', []),
+                                           'arch': linux_cbdino.get('arch', []), 
+                                           'python-version': linux_cbdino.get('python_version', [])}
 
 def stage_matrix_as_dict(stage: str, stage_matrix: Union[StageMatrix, TestStageMatrix]) -> Dict[str, Any]:
     matrix_dict: Dict[str, Any] = {}
@@ -1104,6 +1132,7 @@ def stage_matrix_as_dict(stage: str, stage_matrix: Union[StageMatrix, TestStageM
     if stage == 'test_unit':
         sdk_project = SdkProject.from_env()
         test_matrix = cast(TestStageMatrix, stage_matrix)
+        # TODO: this is a possibility, but the matrix becomes rather large (>= 60)
         # add_test_config_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
         add_apis_and_install_type_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
     elif stage == 'test_integration':
@@ -1111,11 +1140,11 @@ def stage_matrix_as_dict(stage: str, stage_matrix: Union[StageMatrix, TestStageM
         test_matrix = cast(TestStageMatrix, stage_matrix)
         matrix_dict['skip_cbdino'] = test_matrix.get('skip_cbdino', False)
         matrix_dict['skip_integration'] = test_matrix.get('skip_integration', False)
+        matrix_dict['has_linux_cbdino'] = test_matrix.get('has_linux_cbdino', False)
+        # TODO: this is a possibility, but the matrix becomes rather large (>= 60)
         # add_test_config_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
         add_apis_and_install_type_to_stage_matrix(matrix_dict, test_matrix, sdk_project)
-        cbdino_cfg = test_matrix.get('cbdino_config', None)
-        if cbdino_cfg is not None:
-            matrix_dict['cbdino_config'] = cbdino_cfg.to_dict()
+        add_cbdino_config_to_stage_matrix(matrix_dict, test_matrix)
         test_config = test_matrix.get('test_config', None)
         if test_config is not None:
             matrix_dict['test_config'] = test_config.to_dict(sdk_project)
