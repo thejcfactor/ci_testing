@@ -67,8 +67,10 @@ class SdkProject(Enum):
         if sdk_project == SdkProject.Analytics:
             return CbdinoConfig(
                 num_nodes=3,
-                version='2.0.0-1059',
-                image='ghcr.io/cb-vanilla/columnar:2.0.0-1059',
+                # version='2.0.0-1059',
+                # image='ghcr.io/cb-vanilla/columnar:2.0.0-1059',
+                version='1.2.0-1055',
+                image='ghcr.io/cb-vanilla/columnar:1.2.0-1055',
                 use_load_balancer=False,
                 use_dns=True,
                 use_dino_certs=True
