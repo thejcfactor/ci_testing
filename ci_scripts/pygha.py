@@ -809,7 +809,7 @@ class PublishConfigHandler:
     @staticmethod
     def build_publish_config(config_key: str, version_key: str) -> None:
         _, _, publish_config, _ = UserConfigHandler.parse_user_config(config_key, version_key=version_key)
-        print(f'{json.dumps(publish_config.to_dict())}')
+        print(f'{json.dumps({"publish_config": publish_config.to_dict()})}')
 
 
 class StageMatrixConfigHandler:
