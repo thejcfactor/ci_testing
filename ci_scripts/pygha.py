@@ -289,25 +289,25 @@ class PytestIntegrationConfig:
         if sdk_project == SdkProject.Analytics:
             return cls(
                 debug_logging=False,
-                acouchbase_cmd='pytest -m "pycbac_acouchbase and pycbac_integration"',
+                acouchbase_cmd="pytest -m 'pycbac_acouchbase and pycbac_integration'",
                 acouchbase_opts='-rA -vv',
-                couchbase_cmd='pytest -m "pycbac_couchbase and pycbac_integration"',
+                couchbase_cmd="pytest -m 'pycbac_couchbase and pycbac_integration'",
                 couchbase_opts='-rA -vv',
             )
         elif sdk_project == SdkProject.Columnar:
             return cls(
                 debug_logging=False,
-                acouchbase_cmd='pytest -m "pycbcc_acouchbase and pycbac_integration"',
+                acouchbase_cmd="pytest -m 'pycbcc_acouchbase and pycbac_integration'",
                 acouchbase_opts='-rA -vv',
-                couchbase_cmd='pytest -m "pycbcc_couchbase and pycbac_integration"',
+                couchbase_cmd="pytest -m 'pycbcc_couchbase and pycbac_integration'",
                 couchbase_opts='-rA -vv',
             )
         elif sdk_project == SdkProject.Operational:
             return cls(
                 debug_logging=False,
-                acouchbase_cmd='pytest -m "pycbc_acouchbase and pycbac_integration"',
+                acouchbase_cmd="pytest -m 'pycbc_acouchbase and pycbac_integration'",
                 acouchbase_opts='-rA -vv',
-                couchbase_cmd='pytest -m "pycbc_couchbase and pycbac_integration"',
+                couchbase_cmd="pytest -m 'pycbc_couchbase and pycbac_integration'",
                 couchbase_opts='-rA -vv',
             )
         else:
