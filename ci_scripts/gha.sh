@@ -115,7 +115,7 @@ function validate_pycbac_input {
             echo "Must provide a packaging index."
             exit 1
         fi
-        if [ "$packaging_index" != "PYPI" ] || [ "$packaging_index" != "TEST_PYPI" ]; then
+        if [ "$packaging_index" != "PYPI" ] && [ "$packaging_index" != "TEST_PYPI" ]; then
             echo "Packing index must be either PYPI or TEST_PYPI. Provided: $packaging_index"
             exit 1
         fi
