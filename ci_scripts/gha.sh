@@ -106,7 +106,7 @@ function validate_pycbac_input {
             validate_sha
             validate_version
         fi
-    elif [ "$workflow_type" == "verify_releasse" ]; then
+    elif [ "$workflow_type" == "verify_release" ]; then
         echo "workflow_type: ${workflow_type}, params: $@"
         validate_version
         validate_sha
