@@ -868,8 +868,6 @@ class StageMatrixConfigHandler:
 
         if linux_alpine_matrix:
             linux_alpine_matrix['python_version'] = python_versions
-            # if 'aarch64' in linux_alpine_matrix['arch'] and 'musllinux' in linux_alpine_matrix['linux_type']:
-            #     linux_alpine_matrix['exclude'] = [{'linux-type': 'musllinux', 'arch': 'aarch64'}]
 
         return linux_alpine_matrix
 
@@ -888,13 +886,6 @@ class StageMatrixConfigHandler:
                 linux_matrix['arch'] = ['aarch64']
             else:
                 linux_matrix['arch'].append('aarch64')
-        # if 'alpine' in x86_64_platforms:
-        #     if 'linux_type' not in linux_matrix:
-        #         linux_matrix['linux_type'] = ['musllinux']
-        #     else:
-        #         linux_matrix['linux_type'].append('musllinux')
-        #     if 'arch' not in linux_matrix:
-        #         linux_matrix['arch'] = ['x86_64']
 
         if linux_matrix:
             linux_matrix['python_version'] = python_versions
@@ -972,27 +963,11 @@ class StageMatrixConfigHandler:
                 linux_matrix['arch'] = ['aarch64']
             else:
                 linux_matrix['arch'].append('aarch64')
-        # if 'alpine' in x86_64_platforms:
-        #     alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
-        #     if 'container' not in linux_matrix or linux_matrix['container'] is None:
-        #         linux_matrix['container'] = [alpine_container]
-        #     else:
-        #         linux_matrix['container'].append(alpine_container)
-        #     if 'arch' not in linux_matrix:
-        #         linux_matrix['arch'] = ['x86_64']
 
         if linux_matrix:
             default_linux_plat = get_env_variable('CBCI_DEFAULT_LINUX_PLATFORM')
             linux_matrix['os'] = [default_linux_plat]
             linux_matrix['python_version'] = python_versions
-            # if (
-            #     'aarch64' in linux_matrix['arch']
-            #     and 'container' in linux_matrix
-            #     and linux_matrix['container'] is not None
-            # ):
-            #     alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
-            #     if alpine_container in linux_matrix['container']:
-            #         linux_matrix['exclude'] = [{'container': alpine_container, 'arch': 'aarch64'}]
 
         return linux_matrix
 
