@@ -467,9 +467,11 @@ class LinuxStageMatrix(TypedDict, total=False):
 
 
 class StageMatrix(TypedDict, total=False):
+    has_alpine: bool
     has_linux: bool
     has_macos: bool
     has_windows: bool
+    alpine: Optional[LinuxStageMatrix]
     linux: Optional[LinuxStageMatrix]
     macos: Optional[MacosStageMatrix]
     windows: Optional[WindowsStageMatrix]
@@ -852,6 +854,26 @@ class StageMatrixConfigHandler:
                 test_matrix['test_config'] = test_config
 
     @staticmethod
+    def _build_linux_alpine_stage_matrix(
+        python_versions: List[str], x86_64_platforms: List[str], arm64_platforms: List[str]
+    ) -> LinuxStageMatrix:
+        linux_alpine_matrix: LinuxStageMatrix = {}
+        if 'alpine' in x86_64_platforms:
+            if 'linux_type' not in linux_alpine_matrix:
+                linux_alpine_matrix['linux_type'] = ['musllinux']
+            else:
+                linux_alpine_matrix['linux_type'].append('musllinux')
+            if 'arch' not in linux_alpine_matrix:
+                linux_alpine_matrix['arch'] = ['x86_64']
+
+        if linux_alpine_matrix:
+            linux_alpine_matrix['python_version'] = python_versions
+            # if 'aarch64' in linux_alpine_matrix['arch'] and 'musllinux' in linux_alpine_matrix['linux_type']:
+            #     linux_alpine_matrix['exclude'] = [{'linux-type': 'musllinux', 'arch': 'aarch64'}]
+
+        return linux_alpine_matrix
+
+    @staticmethod
     def _build_linux_stage_matrix(
         python_versions: List[str], x86_64_platforms: List[str], arm64_platforms: List[str]
     ) -> LinuxStageMatrix:
@@ -866,13 +888,13 @@ class StageMatrixConfigHandler:
                 linux_matrix['arch'] = ['aarch64']
             else:
                 linux_matrix['arch'].append('aarch64')
-        if 'alpine' in x86_64_platforms:
-            if 'linux_type' not in linux_matrix:
-                linux_matrix['linux_type'] = ['musllinux']
-            else:
-                linux_matrix['linux_type'].append('musllinux')
-            if 'arch' not in linux_matrix:
-                linux_matrix['arch'] = ['x86_64']
+        # if 'alpine' in x86_64_platforms:
+        #     if 'linux_type' not in linux_matrix:
+        #         linux_matrix['linux_type'] = ['musllinux']
+        #     else:
+        #         linux_matrix['linux_type'].append('musllinux')
+        #     if 'arch' not in linux_matrix:
+        #         linux_matrix['arch'] = ['x86_64']
 
         if linux_matrix:
             linux_matrix['python_version'] = python_versions
@@ -880,6 +902,56 @@ class StageMatrixConfigHandler:
                 linux_matrix['exclude'] = [{'linux-type': 'musllinux', 'arch': 'aarch64'}]
 
         return linux_matrix
+
+    @staticmethod
+    def _build_linux_stage_matrix_new(
+        python_versions: List[str], x86_64_platforms: List[str], arm64_platforms: List[str]
+    ) -> LinuxStageMatrix:
+        linux_matrix: LinuxStageMatrix = {}
+        if 'linux' in x86_64_platforms:
+            linux_plat = get_env_variable('CBCI_DEFAULT_LINUX_X86_64_PLATFORM')
+            linux_matrix['os'] = [linux_plat]
+            linux_matrix['arch'] = ['x86_64']
+        if 'macos' in arm64_platforms:
+            linux_plat = get_env_variable('CBCI_DEFAULT_LINUX_ARM64_PLATFORM')
+            if 'os' not in linux_matrix or linux_matrix['os'] is None:
+                linux_matrix['os'] = [linux_plat]
+            else:
+                linux_matrix['os'].append(linux_plat)
+            if 'arch' not in linux_matrix:
+                linux_matrix['arch'] = ['arm64']
+            else:
+                linux_matrix['arch'].append('arm64')
+
+        if linux_matrix:
+            linux_matrix['python_version'] = python_versions
+            if 'arm64' in linux_matrix['arch'] and 'x86_64' in linux_matrix['arch']:
+                linux_x86_64_plat = get_env_variable('CBCI_DEFAULT_LINUX_X86_64_PLATFORM')
+                linux_arm64_plat = get_env_variable('CBCI_DEFAULT_LINUX_ARM64_PLATFORM')
+                linux_matrix['exclude'] = [
+                    {'os': linux_x86_64_plat, 'arch': 'arm64'},
+                    {'os': linux_arm64_plat, 'arch': 'x86_64'},
+                ]
+
+        return linux_matrix
+
+    @staticmethod
+    def _build_linux_alpine_validate_wheel_stage_matrix(  # noqa: C901
+        python_versions: List[str],
+        x86_64_platforms: List[str],
+        arm64_platforms: List[str],
+    ) -> LinuxStageMatrix:
+        alpine_matrix: LinuxStageMatrix = {}
+        if 'alpine' in x86_64_platforms:
+            alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
+            if 'container' not in alpine_matrix or alpine_matrix['container'] is None:
+                alpine_matrix['container'] = [alpine_container]
+            else:
+                alpine_matrix['container'].append(alpine_container)
+            if 'arch' not in alpine_matrix:
+                alpine_matrix['arch'] = ['x86_64']
+
+        return alpine_matrix
 
     @staticmethod
     def _build_linux_validate_wheel_stage_matrix(  # noqa: C901
@@ -900,27 +972,27 @@ class StageMatrixConfigHandler:
                 linux_matrix['arch'] = ['aarch64']
             else:
                 linux_matrix['arch'].append('aarch64')
-        if 'alpine' in x86_64_platforms:
-            alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
-            if 'container' not in linux_matrix or linux_matrix['container'] is None:
-                linux_matrix['container'] = [alpine_container]
-            else:
-                linux_matrix['container'].append(alpine_container)
-            if 'arch' not in linux_matrix:
-                linux_matrix['arch'] = ['x86_64']
+        # if 'alpine' in x86_64_platforms:
+        #     alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
+        #     if 'container' not in linux_matrix or linux_matrix['container'] is None:
+        #         linux_matrix['container'] = [alpine_container]
+        #     else:
+        #         linux_matrix['container'].append(alpine_container)
+        #     if 'arch' not in linux_matrix:
+        #         linux_matrix['arch'] = ['x86_64']
 
         if linux_matrix:
             default_linux_plat = get_env_variable('CBCI_DEFAULT_LINUX_PLATFORM')
             linux_matrix['os'] = [default_linux_plat]
             linux_matrix['python_version'] = python_versions
-            if (
-                'aarch64' in linux_matrix['arch']
-                and 'container' in linux_matrix
-                and linux_matrix['container'] is not None
-            ):
-                alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
-                if alpine_container in linux_matrix['container']:
-                    linux_matrix['exclude'] = [{'container': alpine_container, 'arch': 'aarch64'}]
+            # if (
+            #     'aarch64' in linux_matrix['arch']
+            #     and 'container' in linux_matrix
+            #     and linux_matrix['container'] is not None
+            # ):
+            #     alpine_container = get_env_variable('CBCI_DEFAULT_ALPINE_CONTAINER')
+            #     if alpine_container in linux_matrix['container']:
+            #         linux_matrix['exclude'] = [{'container': alpine_container, 'arch': 'aarch64'}]
 
         return linux_matrix
 
@@ -1012,6 +1084,15 @@ class StageMatrixConfigHandler:
                     matrix_dict['linux']['python-version'] = v
                 else:
                     matrix_dict['linux'][k] = v
+        if 'alpine' in stage_matrix and stage_matrix['alpine'] is not None:
+            matrix_dict['alpine'] = {}
+            for k, v in stage_matrix['alpine'].items():
+                if k == 'linux_type':
+                    matrix_dict['alpine']['linux-type'] = v
+                elif k == 'python_version':
+                    matrix_dict['alpine']['python-version'] = v
+                else:
+                    matrix_dict['alpine'][k] = v
         if 'macos' in stage_matrix and stage_matrix['macos'] is not None:
             matrix_dict['macos'] = {}
             for k, v in stage_matrix['macos'].items():
@@ -1027,6 +1108,7 @@ class StageMatrixConfigHandler:
                 else:
                     matrix_dict['windows'][k] = v
         matrix_dict['has_linux'] = stage_matrix.get('has_linux', False)
+        matrix_dict['has_alpine'] = stage_matrix.get('has_alpine', False)
         matrix_dict['has_macos'] = stage_matrix.get('has_macos', False)
         matrix_dict['has_windows'] = stage_matrix.get('has_windows', False)
         if stage == 'test_unit':
@@ -1056,14 +1138,26 @@ class StageMatrixConfigHandler:
 
     @staticmethod
     def build_linux_stage_matrix(
-        python_versions: List[str], x86_64_platforms: List[str], arm64_platforms: List[str], stage: ConfigStage
+        python_versions: List[str],
+        x86_64_platforms: List[str],
+        arm64_platforms: List[str],
+        stage: ConfigStage,
+        is_alpine: bool,
     ) -> LinuxStageMatrix:
         linux_matrix: LinuxStageMatrix = {}
         if stage in [ConfigStage.BUILD_WHEEL, ConfigStage.TEST_UNIT, ConfigStage.TEST_INTEGRATION]:
-            return StageMatrixConfigHandler._build_linux_stage_matrix(
+            if is_alpine:
+                return StageMatrixConfigHandler._build_linux_alpine_stage_matrix(
+                    python_versions, x86_64_platforms, arm64_platforms
+                )
+            return StageMatrixConfigHandler._build_linux_stage_matrix_new(
                 python_versions, x86_64_platforms, arm64_platforms
             )
         elif stage == ConfigStage.VALIDATE_WHEEL:
+            if is_alpine:
+                return StageMatrixConfigHandler._build_linux_alpine_validate_wheel_stage_matrix(
+                    python_versions, x86_64_platforms, arm64_platforms
+                )
             return StageMatrixConfigHandler._build_linux_validate_wheel_stage_matrix(
                 python_versions, x86_64_platforms, arm64_platforms
             )
@@ -1162,13 +1256,21 @@ class StageMatrixConfigHandler:
             stage_matrix: StageMatrix = {}
 
             linux_matrix = StageMatrixConfigHandler.build_linux_stage_matrix(
-                python_versions, x86_64_platforms, arm64_platforms, stage
+                python_versions, x86_64_platforms, arm64_platforms, stage, False
             )
             if linux_matrix:
                 stage_matrix['linux'] = linux_matrix
                 stage_matrix['has_linux'] = True
             else:
                 stage_matrix['has_linux'] = False
+            alpine_matrix = StageMatrixConfigHandler.build_linux_stage_matrix(
+                python_versions, x86_64_platforms, arm64_platforms, stage, True
+            )
+            if alpine_matrix:
+                stage_matrix['alpine'] = alpine_matrix
+                stage_matrix['has_alpine'] = True
+            else:
+                stage_matrix['has_alpine'] = False
             macos_matrix = StageMatrixConfigHandler.build_macos_stage_matrix(
                 python_versions, x86_64_platforms, arm64_platforms, stage
             )
