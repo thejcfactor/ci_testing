@@ -758,7 +758,6 @@ class ConfigHandler:
                 if (default := default_cfg[k].default) is not None:
                     cfg[k] = default
 
-        # print(f'{json.dumps({default_cfg[k]["sdk_alias"]:v for k, v in cfg.items()})}')
         print(' '.join([f'{default_cfg[k].sdk_alias}={v}' for k, v in cfg.items()]))
 
     @staticmethod
@@ -1692,7 +1691,6 @@ class UserConfigHandler:
         global_cfg = PytestConfig.get_config_options(pytest_cfg, sdk_project)
         if 'unit' in pytest_cfg and isinstance(pytest_cfg['unit'], dict):
             unit_cfg = PytestConfig.get_config_options(pytest_cfg['unit'], sdk_project)
-            # print(f'Unit test config: {unit_cfg}')
         else:
             unit_cfg = {}
 
@@ -1704,7 +1702,6 @@ class UserConfigHandler:
 
         if 'integration' in pytest_cfg and isinstance(pytest_cfg['integration'], dict):
             int_cfg = PytestConfig.get_config_options(pytest_cfg['integration'], sdk_project)
-            # print(f'Integration test config: {int_cfg}')
         else:
             int_cfg = {}
 
